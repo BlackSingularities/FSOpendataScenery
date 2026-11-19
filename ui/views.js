@@ -41,7 +41,7 @@ export async function renderDashboard(view) {
       <div class="card env"><h3>${icon('cpu')}${esc(t('environment'))}<span class="grow"></span><button class="btn sm ghost icon" id="d-env" title="${esc(t('refresh'))}">${icon('refresh')}</button></h3>
         ${env ? `${chk(env.installs.length > 0, t('chkMsfs'), env.installs.length ? esc(env.installs.map((i) => i.label).join(' · ')) : esc(t('msfsMissing')), true)}
         ${chk(env.communityOk, t('chkCommunity'), esc(env.community || t('communityMissing')), true)}
-        ${chk(!!env.sdk, t('chkSdk'), env.sdk ? esc(env.sdk.root) : `${esc(t('sdkMissing'))} <a href="#" id="d-sdk">${esc(t('sdkHow'))}</a>`, true)}
+        ${chk(!!env.sdk && !env.sdk.legacy, t('chkSdk'), env.sdk && !env.sdk.legacy ? esc(env.sdk.root) : `${esc(env.sdk?.legacy ? t('sdkLegacy', env.sdk.version, env.sdk.root) : t('sdkMissing'))} <a href="#" id="d-sdk">${esc(t('sdkHow'))}</a>`, true)}
         ${chk(!env.simRunning, t('chkSimClosed'), env.simRunning ? esc(t('simRunningD')) : esc(t('simClosedD')))}` : `<div class="faint">${esc(t('checking'))}</div>`}
       </div>
     </div>

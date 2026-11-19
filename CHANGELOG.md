@@ -1,5 +1,10 @@
 # Zmiany
 
+## 1.0.1
+
+- Rozpoznawanie SDK do MSFS 2020 (wersje 0.x, np. `C:\MSFS SDK`): aplikacja nie próbuje już nim kompilować (jego fspackagetool uruchamiał MSFS 2020 przez Steam i kończył się kodem 1), tylko pokazuje, że trzeba zainstalować MSFS 2024 SDK. Gdy na dysku są oba, wybiera SDK 2024.
+- Gdy fspackagetool zakończy się błędem bez żadnego komunikatu, dziennik podpowiada, co sprawdzić.
+
 ## 1.0.0
 
 Pierwsze wydanie.

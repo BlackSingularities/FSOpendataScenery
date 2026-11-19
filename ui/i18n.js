@@ -53,6 +53,7 @@ const PL = {
   // Teren
   terrainLead: 'Prostokąty z heightmapą podmieniają ukształtowanie terenu MSFS tam, gdzie mamy lepsze dane.',
   dataSources: 'Źródła danych', sourcesLead: 'W każdym punkcie wygrywa pierwsze źródło z danymi. Kolejność zmienisz strzałkami.',
+  sdkLegacy: 'W {1} jest SDK do MSFS 2020 (wersja {0}) – nie zbuduje pakietu MSFS 2024. Zainstaluj MSFS 2024 SDK.',
   srcLakesFlat: 'Wody OSM (spłaszczone)', unitAsl: 'm n.p.m.', unitMln: 'mln',
   srcname_files: 'Własne pliki', srcdesc_files: 'GeoTIFF, ASC, XYZ, HGT, także w ZIP (np. LiDAR z geoportali)',
   srcname_gugik: 'NMT GUGiK', srcdesc_gugik: 'Polska, LiDAR 1 m, pobierany na bieżąco z Geoportalu',
@@ -203,6 +204,7 @@ const EN = {
   map_dark: 'Map', map_topo: 'Topo', map_satellite: 'Satellite', map_osm: 'OSM',
   terrainLead: 'Height-map rectangles replace the MSFS terrain wherever we have better data.',
   dataSources: 'Data sources', sourcesLead: 'At each point the first source with data wins. Reorder with the arrows.',
+  sdkLegacy: '{1} holds the MSFS 2020 SDK (version {0}), which cannot build MSFS 2024 packages. Install the MSFS 2024 SDK.',
   srcLakesFlat: 'OSM water (flattened)', unitAsl: 'm AMSL', unitMln: 'M',
   srcname_files: 'Your files', srcdesc_files: 'GeoTIFF, ASC, XYZ, HGT, also zipped (e.g. LiDAR from national portals)',
   srcname_gugik: 'GUGiK DTM', srcdesc_gugik: 'Poland, 1 m LiDAR, streamed from the Geoportal',

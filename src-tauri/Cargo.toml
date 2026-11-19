@@ -1,6 +1,6 @@
 [package]
 name = "fs-opendata-scenery"
-version = "1.0.0"
+version = "1.0.1"
 description = "FS Opendata Scenery – generator scenerii z otwartych danych (rzeźba terenu, oświetlenie z OSM, przeszkody) dla Microsoft Flight Simulator 2024"
 authors = ["Adam Rędzikowski"]
 license = "MIT"

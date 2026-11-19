@@ -102,6 +102,8 @@ pub struct Sdk {
     pub root: String,
     pub package_tool: String,
     pub version: String,
+    /// SDK do MSFS 2020 (wersje 0.x) – jego fspackagetool uruchamia MSFS 2020 i nie zbuduje pakietu 2024.
+    pub legacy: bool,
 }
 
 fn sdk_at(root: &Path) -> Option<Sdk> {
@@ -110,7 +112,8 @@ fn sdk_at(root: &Path) -> Option<Sdk> {
         return None;
     }
     let version = std::fs::read_to_string(root.join("version.txt")).map(|s| s.trim().to_string()).unwrap_or_default();
-    Some(Sdk { root: root.to_string_lossy().into_owned(), package_tool: tool.to_string_lossy().into_owned(), version })
+    let legacy = is_legacy_version(&version);
+    Some(Sdk { root: root.to_string_lossy().into_owned(), package_tool: tool.to_string_lossy().into_owned(), version, legacy })
 }
 
 /// Szuka MSFS 2024 SDK: własna ścieżka, zmienna środowiskowa instalatora, typowe miejsca na dyskach.
@@ -125,9 +128,19 @@ pub fn find_sdk(custom: &str) -> Option<Sdk> {
         }
         return None;
     }
+    // Najpierw SDK 2024; SDK do MSFS 2020 zwracamy tylko, gdy nie ma innego (żeby pokazać ostrzeżenie).
+    let mut legacy: Option<Sdk> = None;
+    let mut consider = |s: Sdk| -> Option<Sdk> {
+        if s.legacy {
+            legacy.get_or_insert(s);
+            None
+        } else {
+            Some(s)
+        }
+    };
     for var in ["MSFS2024_SDK", "MSFS_SDK"] {
         if let Some(p) = env_dir(var) {
-            if let Some(s) = sdk_at(&p) {
+            if let Some(s) = sdk_at(&p).and_then(&mut consider) {
                 return Some(s);
             }
         }
@@ -136,17 +149,37 @@ pub fn find_sdk(custom: &str) -> Option<Sdk> {
     for d in drives {
         for name in ["MSFS 2024 SDK", "MSFS2024 SDK", "MSFS 2024 SDK\\SDK", "Program Files\\MSFS 2024 SDK", "MSFS SDK"] {
             let p = PathBuf::from(format!("{d}:\\{name}"));
-            if let Some(s) = sdk_at(&p) {
+            if let Some(s) = sdk_at(&p).and_then(&mut consider) {
                 return Some(s);
             }
         }
     }
-    None
+    legacy
+}
+
+/// MSFS 2020 SDK ma numery 0.x, MSFS 2024 SDK – 1.x i wyższe.
+fn is_legacy_version(v: &str) -> bool {
+    v.trim().split('.').next().and_then(|m| m.parse::<u32>().ok()) == Some(0)
+}
+
+/// Komunikat dla SDK do MSFS 2020 znalezionego zamiast SDK 2024.
+pub fn legacy_message(s: &Sdk) -> String {
+    format!(
+        "W {} jest SDK do MSFS 2020 (wersja {}). Jego fspackagetool uruchamia MSFS 2020 i nie zbuduje pakietu MSFS 2024. Zainstaluj MSFS 2024 SDK (w MSFS 2024: Developer Mode → Help → SDK Installer, domyślnie C:\\MSFS 2024 SDK) i wskaż go w Ustawieniach",
+        s.root, s.version
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sdk_versions() {
+        assert!(is_legacy_version("0.24.5"));
+        assert!(!is_legacy_version("1.4.12"));
+        assert!(!is_legacy_version(""));
+    }
 
     #[test]
     fn reads_installed_packages_path() {

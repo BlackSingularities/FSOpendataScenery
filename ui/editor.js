@@ -539,6 +539,8 @@ export async function renderBuild(view) {
   ]);
   if (S.view !== 'build' || S.project?.id !== p.id) return;
   S.env = env;
+  // SDK do MSFS 2020 (wersja 0.x) nie zbuduje pakietu 2024 – traktujemy je jak brak SDK.
+  const sdkOk = !!env?.sdk && !env.sdk.legacy;
   S.pkg = pkg;
   const job = projectJob();
   const chk = (ok, title, desc, warn) => `<div class="check ${ok ? 'ok' : warn ? 'warn' : 'bad'}">${icon(ok ? 'ok' : warn ? 'warn' : 'error')}<div class="grow"><div class="t">${title}</div>${desc ? `<div class="d">${desc}</div>` : ''}</div></div>`;
@@ -558,15 +560,15 @@ export async function renderBuild(view) {
       ${p.lights.enabled || p.obstacles.enabled ? chk(nLights > 0, esc(t('chkLights')), nLights ? esc(t('lightsReady', num(nLights), num(lights.models))) : esc(t('lightsNotGenerated')), true) : ''}
       ${chk(!!env?.installs?.length, esc(t('chkMsfs')), env?.installs?.length ? esc(env.installs.map((i) => i.label).join(' · ')) : esc(t('msfsMissing')), true)}
       ${chk(!!env?.communityOk, esc(t('chkCommunity')), esc(env?.community || t('communityMissing')), true)}
-      ${chk(!!env?.sdk, esc(t('chkSdk')), env?.sdk ? esc(env.sdk.packageTool) : `${esc(t('sdkMissing'))} <a href="#" id="bd-sdkdoc">${esc(t('sdkHow'))}</a>`, true)}
+      ${chk(sdkOk, esc(t('chkSdk')), sdkOk ? esc(env.sdk.packageTool) : `${esc(env?.sdk?.legacy ? t('sdkLegacy', env.sdk.version, env.sdk.root) : t('sdkMissing'))} <a href="#" id="bd-sdkdoc">${esc(t('sdkHow'))}</a>`, true)}
       ${chk(!env?.simRunning, esc(t('chkSimClosed')), env?.simRunning ? esc(t('simRunningD')) : '')}
     </div></div></div>
     <div class="card set-card"><h3>${icon('build')}${esc(t('buildTitle'))}</h3>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('buildAll'))}</div><div class="d">${esc(t('buildAllD'))}</div></div><button class="btn primary" id="bd-all" ${job || !hasArea() ? 'disabled' : ''}>${icon('rocket')}${esc(t('buildAllBtn'))}</button></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('buildOnly'))}</div><div class="d">${esc(t('buildOnlyD'))}</div></div>
-        <div class="btn-row"><button class="btn" id="bd-build" ${job || !hasArea() ? 'disabled' : ''}>${icon('build')}${esc(t('build'))}</button><button class="btn" id="bd-binst" ${job || !hasArea() || !env?.sdk ? 'disabled' : ''}>${icon('download')}${esc(t('buildInstall'))}</button></div></div>
+        <div class="btn-row"><button class="btn" id="bd-build" ${job || !hasArea() ? 'disabled' : ''}>${icon('build')}${esc(t('build'))}</button><button class="btn" id="bd-binst" ${job || !hasArea() || !sdkOk ? 'disabled' : ''}>${icon('download')}${esc(t('buildInstall'))}</button></div></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('testPkg'))}</div><div class="d">${esc(t('testPkgD'))}${pkg?.testBuilt ? ` · <span class="c-ok">${esc(t('testBuilt'))}</span>` : ''}</div></div>
-        <div class="btn-row"><button class="btn sm" id="bd-test" ${job || !hasArea() ? 'disabled' : ''}>${icon('lamp')}${esc(env?.sdk ? t('testBuildInstall') : t('testSources'))}</button><button class="btn sm icon" id="bd-testdir" title="${esc(t('openSources'))}" ${pkg?.testDir ? '' : 'disabled'}>${icon('folder')}</button></div></div>
+        <div class="btn-row"><button class="btn sm" id="bd-test" ${job || !hasArea() ? 'disabled' : ''}>${icon('lamp')}${esc(sdkOk ? t('testBuildInstall') : t('testSources'))}</button><button class="btn sm icon" id="bd-testdir" title="${esc(t('openSources'))}" ${pkg?.testDir ? '' : 'disabled'}>${icon('folder')}</button></div></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('installTitle'))}</div><div class="d">${pkg?.installed ? `${esc(t('installedAt'))}: ${esc(pkg.installed)}${pkg.linked ? ` (${esc(t('linked'))})` : ''}` : pkg?.built ? esc(t('builtNotInstalled', bytes(pkg.builtBytes))) : esc(t('notBuilt'))}</div></div>
         <div class="btn-row">${pkg?.installed ? `<button class="btn danger" id="bd-uninst">${icon('trash')}${esc(t('uninstall'))}</button>` : ''}<button class="btn" id="bd-inst" ${pkg?.built && !job ? '' : 'disabled'}>${icon('download')}${esc(pkg?.installed ? t('reinstall') : t('install'))}</button></div></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('filesTitle'))}</div><div class="d">${esc(t('filesD'))}</div></div>
@@ -576,9 +578,9 @@ export async function renderBuild(view) {
     </div></div>`;
   bindInputs(view);
   $('#bd-sdkdoc')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_Overview.htm'); });
-  $('#bd-all').onclick = () => startJob('all', { install: !!env?.sdk });
+  $('#bd-all').onclick = () => startJob('all', { install: sdkOk });
   $('#bd-build').onclick = () => startJob('build');
-  $('#bd-test').onclick = () => startJob('testlights', { install: !!env?.sdk });
+  $('#bd-test').onclick = () => startJob('testlights', { install: sdkOk });
   $('#bd-testdir').onclick = () => opener.openPath(pkg.testDir);
   $('#bd-binst').onclick = () => startJob('build', { install: true });
   $('#bd-inst').onclick = async () => {

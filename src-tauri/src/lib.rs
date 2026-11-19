@@ -901,9 +901,18 @@ fn stage_build(ctx: &Ctx, install: bool) -> Result<Value, String> {
     ctx.log(&format!("Źródła SDK: {} plików, {:.1} MB · prostokąty terenu: {} · światła: {} · modele: {} · roślinność: {}", sum.files, sum.bytes as f64 / 1e6, sum.rectangles, sum.lights, sum.models, sum.vegetation));
     ctx.check()?;
 
-    if sim::find_sdk(&settings.sdk_path).is_none() {
-        set_status(ctx, "build", format!("{}|sources", store::now()));
-        return Ok(json!({"sources": sum, "compiled": false, "reason": "sdk"}));
+    match sim::find_sdk(&settings.sdk_path) {
+        None => {
+            set_status(ctx, "build", format!("{}|sources", store::now()));
+            return Ok(json!({"sources": sum, "compiled": false, "reason": "sdk"}));
+        }
+        Some(sdk) if sdk.legacy => {
+            set_status(ctx, "build", format!("{}|sources", store::now()));
+            let msg = sim::legacy_message(&sdk);
+            ctx.log(&msg);
+            return Err(format!("{msg}. Źródła projektu zapisano."));
+        }
+        _ => {}
     }
     ctx.progress("build", 1, 3, "Kompilacja (fspackagetool)…");
     let pkg = built_package(&st, &p);
@@ -922,6 +931,9 @@ fn compile_with_sdk(ctx: &Ctx, work: &Path, project_xml: &Path, pkg: &Path) -> R
     let st = ctx.state();
     let settings = st.store.settings();
     let sdk = sim::find_sdk(&settings.sdk_path).ok_or("Nie znaleziono MSFS 2024 SDK – wskaż jego folder w ustawieniach")?;
+    if sdk.legacy {
+        return Err(sim::legacy_message(&sdk));
+    }
     if sim::is_running() {
         return Err("Zamknij Microsoft Flight Simulator 2024 – kompilator pakietów uruchamia własną instancję symulatora".into());
     }
@@ -983,7 +995,12 @@ fn compile_with_sdk(ctx: &Ctx, work: &Path, project_xml: &Path, pkg: &Path) -> R
     let _ = std::fs::write(work.join("build.log"), &log);
     ctx.check()?;
     if !status.success() || !pkg.join("layout.json").exists() {
-        let hint = log.lines().rev().find(|l| l.to_lowercase().contains("error")).unwrap_or("").trim().to_string();
+        let mut hint = log.lines().rev().find(|l| l.to_lowercase().contains("error")).unwrap_or("").trim().to_string();
+        if log.trim().is_empty() {
+            // fspackagetool nic nie wypisał – zwykle nie mógł uruchomić symulatora (inne konto, brak licencji, zła edycja).
+            hint = "fspackagetool nie wypisał żadnego błędu – zwykle nie mógł uruchomić MSFS 2024. Sprawdź w Ustawieniach edycję symulatora do kompilacji (Steam / Microsoft Store) i czy MSFS 2024 startuje z tego konta".into();
+            ctx.log(&hint);
+        }
         return Err(format!("Kompilacja nie powiodła się (kod {}){}", status.code().unwrap_or(-1), if hint.is_empty() { String::new() } else { format!(": {hint}") }));
     }
     let secs = started.elapsed().as_secs();
