@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1630"/>
+      <stop offset="1" stop-color="#1b2c55"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f5f9a"/>
+      <stop offset="1" stop-color="#22355f"/>
+    </linearGradient>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a8f7c"/>
+      <stop offset="1" stop-color="#0f3d3b"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd27a" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#ffb347" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="pool" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffcf6e" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffcf6e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff3c4"/>
+      <stop offset=".35" stop-color="#ffc85a" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffb347" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="tile"><rect x="64" y="64" width="896" height="896" rx="200"/></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="64" y="64" width="896" height="896" fill="url(#sky)"/>
+    <!-- gwiazdy -->
+    <g fill="#cfe0ff" opacity=".75">
+      <circle cx="210" cy="190" r="6"/><circle cx="330" cy="140" r="4"/><circle cx="470" cy="210" r="5"/>
+      <circle cx="600" cy="150" r="4"/><circle cx="270" cy="300" r="3"/>
+    </g>
+    <!-- dalsze góry z poziomicami -->
+    <path d="M64 640 L250 420 L360 520 L520 330 L700 560 L780 500 L960 640 L960 960 L64 960 Z" fill="url(#far)"/>
+    <path d="M190 560 L250 490 L320 555 M440 470 L520 390 L610 500" fill="none" stroke="#7fa6e6" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>
+    <!-- bliższe wzgórza -->
+    <path d="M64 760 C200 660 330 650 470 720 C600 785 700 700 820 690 C880 685 930 700 960 715 L960 960 L64 960 Z" fill="url(#near)"/>
+    <path d="M120 840 C250 760 360 760 480 815 C600 870 720 800 900 800" fill="none" stroke="#5fd0b5" stroke-width="10" stroke-linecap="round" opacity=".45"/>
+    <!-- światła miasta w dolinie -->
+    <g fill="#ffd27a">
+      <circle cx="200" cy="880" r="9"/><circle cx="250" cy="900" r="7"/><circle cx="300" cy="875" r="8"/>
+      <circle cx="350" cy="905" r="7"/><circle cx="410" cy="885" r="9"/><circle cx="160" cy="915" r="6"/>
+    </g>
+    <!-- latarnia -->
+    <polygon points="606,304 670,304 830,884 446,884" fill="url(#beam)" opacity=".5"/>
+    <ellipse cx="655" cy="884" rx="150" ry="34" fill="url(#pool)"/>
+    <rect x="752" y="300" width="26" height="600" rx="10" fill="#d9e2f2"/>
+    <path d="M765 312 C765 270 720 262 660 268 L612 274" fill="none" stroke="#d9e2f2" stroke-width="22" stroke-linecap="round"/>
+    <path d="M588 262 L688 262 C696 262 700 268 696 276 L680 300 L596 300 L580 276 C576 268 580 262 588 262 Z" fill="#e8eef9"/>
+    <ellipse cx="638" cy="302" rx="44" ry="12" fill="#fff3c4"/>
+    <circle cx="638" cy="312" r="70" fill="url(#glow)" opacity=".85"/>
+    <rect x="736" y="890" width="58" height="22" rx="8" fill="#b9c6dd"/>
+  </g>
+</svg>

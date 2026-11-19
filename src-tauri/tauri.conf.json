@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "FS Opendata Scenery",
+  "version": "1.0.0",
+  "identifier": "com.blacksingularities.fsopendatascenery",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "FS Opendata Scenery",
+        "width": 1480,
+        "height": 920,
+        "minWidth": 1040,
+        "minHeight": 660,
+        "center": true,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "msi"
+    ],
+    "publisher": "BlackSingularities",
+    "category": "Utility",
+    "shortDescription": "Generator scenerii z otwartych danych dla MSFS 2024",
+    "longDescription": "FS Opendata Scenery tworzy dodatki do folderu Community Microsoft Flight Simulator 2024 z otwartych danych: dokładniejszą rzeźbę terenu z darmowych modeli wysokości (NMT GUGiK 1 m, AWS Terrain Tiles, Copernicus, własne pliki GeoTIFF/ASC/XYZ/HGT), prawdziwe latarnie uliczne z OpenStreetMap ze światłem skierowanym w dół, oświetlenie dróg, parkingów i boisk, światła przeszkodowe masztów i wiatraków, latarnie morskie i wycinkę drzew – z podglądem 3D i kompilacją pakietu przez MSFS 2024 SDK.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": [
+          "Polish",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": [
+          "en-US"
+        ]
+      }
+    }
+  }
+}

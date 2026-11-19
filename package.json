@@ -1,0 +1,17 @@
+{
+  "name": "fs-opendata-scenery",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "vendor": "node scripts/vendor.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "leaflet": "1.9.4",
+    "lucide-static": "0.460.0",
+    "three": "0.169.0"
+  }
+}
