@@ -1,0 +1,37 @@
+{
+  "slug": "fsopendatascenery",
+  "name": "FS Opendata Scenery",
+  "label": "generator scenerii do MSFS 2024",
+  "icon": "icon.png",
+  "url": "https://redzikowski.com/portfolio/fsopendatascenery",
+  "posters": [
+    {
+      "platform": "windows",
+      "file": "windows.png",
+      "title": "Twoja okolica w MSFS 2024 *jak naprawdę*",
+      "lead": "Rzeźba terenu z LiDAR, prawdziwe latarnie z OpenStreetMap ze światłem w dół, światła przeszkodowe i gotowy pakiet do Community.",
+      "shots": [
+        {
+          "src": "../screenshots/windows/01.png",
+          "caption": "Światła"
+        },
+        {
+          "src": "../screenshots/windows/02.png",
+          "caption": "Teren LiDAR"
+        },
+        {
+          "src": "../screenshots/windows/03.png",
+          "caption": "Podgląd 3D"
+        }
+      ],
+      "features": [
+        "NMT GUGiK 1 m i dane z całego świata",
+        "latarnie z OSM świecące w dół",
+        "wyrównane pasy startowe",
+        "światła przeszkodowe i latarnie morskie",
+        "kompilacja przez MSFS 2024 SDK"
+      ],
+      "meta": "Windows 10 i 11 · MSFS 2024"
+    }
+  ]
+}

@@ -357,7 +357,7 @@ impl Ctx {
 
 #[tauri::command]
 fn start_job(app: AppHandle, state: St, project: String, kind: String, install: Option<bool>) -> Result<String, String> {
-    if !matches!(kind.as_str(), "osm" | "dem" | "terrain" | "lights" | "build" | "all") {
+    if !matches!(kind.as_str(), "osm" | "dem" | "terrain" | "lights" | "build" | "testlights" | "all") {
         return Err("Nieznane zadanie".into());
     }
     state.store.project(&project)?;
@@ -415,6 +415,7 @@ fn run_job(ctx: &Ctx, install: bool) -> Result<Value, String> {
         "terrain" => stage_terrain(ctx),
         "lights" => stage_lights(ctx),
         "build" => stage_build(ctx, install),
+        "testlights" => stage_testlights(ctx, install),
         _ => {
             let p = ctx.state().store.project(&ctx.project)?;
             let mut out = json!({});
@@ -473,6 +474,9 @@ fn osm_layers(p: &Project) -> Vec<String> {
     }
     if p.terrain.enabled && p.terrain.hydro {
         l.push("water".into());
+    }
+    if p.terrain.enabled && p.terrain.flatten_runways {
+        l.push("runways".into());
     }
     if p.vegetation.enabled {
         let v = &p.vegetation;
@@ -656,6 +660,17 @@ fn stage_terrain(ctx: &Ctx) -> Result<Value, String> {
     } else {
         vec![]
     };
+    let runways = if p.terrain.flatten_runways {
+        match load_osm(&st, &ctx.project) {
+            Some(d) if d.layers.iter().any(|l| l == "runways") => terrain::runways(&d.elements, &b, &mosaic),
+            _ => {
+                warnings.push("Wyrównanie pasów startowych wymaga danych OSM – pobierz je i policz teren ponownie".into());
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
     let done = AtomicUsize::new(0);
     let finished = AtomicBool::new(false);
     let result = std::thread::scope(|scope| {
@@ -665,7 +680,7 @@ fn stage_terrain(ctx: &Ctx) -> Result<Value, String> {
                 ctx.progress("terrain", done.load(Ordering::Relaxed), plan.tiles, "");
             }
         });
-        let r = terrain::compute(&p.terrain, &p.area, &mosaic, &lakes, terrain::Progress { done: &done, cancel: &ctx.cancel }, warnings);
+        let r = terrain::compute(&p.terrain, &p.area, &mosaic, &lakes, &runways, terrain::Progress { done: &done, cancel: &ctx.cancel }, warnings);
         finished.store(true, Ordering::Relaxed);
         r
     })?;
@@ -737,6 +752,12 @@ async fn terrain_profile(state: St<'_>, id: String, a: LatLon, b: LatLon) -> Res
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn export_terrain_tiff(state: St<'_>, id: String, path: String) -> Result<(u32, u32), String> {
+    let tpath = terrain_path(&state, &id);
+    tauri::async_runtime::spawn_blocking(move || terrain::Terrain::load(&tpath)?.write_geotiff(Path::new(&path))).await.map_err(|e| e.to_string())?
+}
+
 // ── Światła ──
 
 fn lights_path(st: &AppState, id: &str) -> PathBuf {
@@ -777,20 +798,44 @@ async fn lights_data(state: St<'_>, id: String) -> Result<Value, String> {
     let path = lights_path(&state, &id);
     tauri::async_runtime::spawn_blocking(move || {
         let list: Vec<lights::Light> = store::read_json(&path).unwrap_or_default();
-        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-        let dots: Vec<Value> = list
-            .iter()
-            .map(|l| {
-                *counts.entry(l.cat.clone()).or_default() += 1;
-                let c = l.spec.color.unwrap_or_else(|| geo::kelvin_rgb(l.spec.kelvin));
-                let hex = format!("#{:02x}{:02x}{:02x}", (c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8);
-                json!([l.lat, l.lon, l.heading.round(), l.cat, l.src.to_string(), hex, l.spec.intensity.round(), l.osm, l.alt, l.spec.style, l.spec.height, l.spec.flash.is_some()])
-            })
-            .collect();
-        Ok(json!({"dots": dots, "counts": counts, "models": lights::count_models(&list)}))
+        Ok(lights_value(&list))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Kropki świateł dla mapy: [lat, lon, kierunek, kategoria, źródło, kolor, natężenie, osm, alt, styl, wysokość, błyska].
+fn lights_value(list: &[lights::Light]) -> Value {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let dots: Vec<Value> = list
+        .iter()
+        .map(|l| {
+            *counts.entry(l.cat.clone()).or_default() += 1;
+            let c = l.spec.color.unwrap_or_else(|| geo::kelvin_rgb(l.spec.kelvin));
+            let hex = format!("#{:02x}{:02x}{:02x}", (c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8);
+            json!([l.lat, l.lon, l.heading.round(), l.cat, l.src.to_string(), hex, l.spec.intensity.round(), l.osm, l.alt, l.spec.style, l.spec.height, l.spec.flash.is_some()])
+        })
+        .collect();
+    json!({"dots": dots, "counts": counts, "models": lights::count_models(list)})
+}
+
+/// Teren i światła dla podglądu 3D (współrzędne w metrach od narożnika NW obszaru).
+fn preview3d_value(area: &Area, t: Option<&terrain::Terrain>, lights: &[lights::Light]) -> Value {
+    let b = area.bbox();
+    let loc = geo::Local::new(LatLon::new(b.north, b.west));
+    let grid = t.map(|t| t.grid3d(area, 360));
+    let lamp: Vec<Value> = lights
+        .iter()
+        .take(60_000)
+        .map(|l| {
+            let (x, y) = loc.to_xy(LatLon::new(l.lat, l.lon));
+            let ground = t.and_then(|t| t.sample(LatLon::new(l.lat, l.lon))).unwrap_or(0.0) as f64;
+            let top = if l.alt > 0.0 { l.alt } else { l.spec.height.max(0.5) };
+            let c = l.spec.color.unwrap_or_else(|| geo::kelvin_rgb(l.spec.kelvin));
+            json!([x.round(), (-y).round(), (ground + top).round(), ground.round(), c, l.spec.intensity, l.spec.flash.is_some()])
+        })
+        .collect();
+    json!({"grid": grid, "lights": lamp, "widthM": b.width_m(), "heightM": b.height_m()})
 }
 
 #[tauri::command]
@@ -819,22 +864,8 @@ async fn preview_3d(state: St<'_>, id: String) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let t = terrain::Terrain::load(&tpath).ok();
         let lights: Vec<lights::Light> = store::read_json(&lpath).unwrap_or_default();
-        let b = p.area.bbox();
-        let loc = geo::Local::new(LatLon::new(b.north, b.west));
-        let grid = t.as_ref().map(|t| t.grid3d(&p.area, 360));
         // Bez policzonego terenu – płaska podstawa na wysokości 0.
-        let lamp: Vec<Value> = lights
-            .iter()
-            .take(60_000)
-            .map(|l| {
-                let (x, y) = loc.to_xy(LatLon::new(l.lat, l.lon));
-                let ground = t.as_ref().and_then(|t| t.sample(LatLon::new(l.lat, l.lon))).unwrap_or(0.0) as f64;
-                let top = if l.alt > 0.0 { l.alt } else { l.spec.height.max(0.5) };
-                let c = l.spec.color.unwrap_or_else(|| geo::kelvin_rgb(l.spec.kelvin));
-                json!([x.round(), (-y).round(), (ground + top).round(), ground.round(), c, l.spec.intensity, l.spec.flash.is_some()])
-            })
-            .collect();
-        Ok(json!({"grid": grid, "lights": lamp, "widthM": b.width_m(), "heightM": b.height_m()}))
+        Ok(preview3d_value(&p.area, t.as_ref(), &lights))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -870,16 +901,32 @@ fn stage_build(ctx: &Ctx, install: bool) -> Result<Value, String> {
     ctx.log(&format!("Źródła SDK: {} plików, {:.1} MB · prostokąty terenu: {} · światła: {} · modele: {} · roślinność: {}", sum.files, sum.bytes as f64 / 1e6, sum.rectangles, sum.lights, sum.models, sum.vegetation));
     ctx.check()?;
 
-    let Some(sdk) = sim::find_sdk(&settings.sdk_path) else {
+    if sim::find_sdk(&settings.sdk_path).is_none() {
         set_status(ctx, "build", format!("{}|sources", store::now()));
         return Ok(json!({"sources": sum, "compiled": false, "reason": "sdk"}));
-    };
+    }
+    ctx.progress("build", 1, 3, "Kompilacja (fspackagetool)…");
+    let pkg = built_package(&st, &p);
+    let secs = compile_with_sdk(ctx, &work, Path::new(&sum.project_xml), &pkg)?;
+    set_status(ctx, "build", format!("{}|ok|{}", store::now(), store::dir_size(&pkg)));
+    let mut installed = Value::Null;
+    if install {
+        ctx.progress("build", 2, 3, "Instalacja w Community…");
+        installed = json!(install_dir(&st, &pkg, &package::package_name(&p))?);
+    }
+    Ok(json!({"sources": sum, "compiled": true, "package": pkg, "seconds": secs, "installed": installed}))
+}
+
+/// Kompilacja projektu SDK przez fspackagetool z dziennikiem na żywo. Zwraca czas w sekundach.
+fn compile_with_sdk(ctx: &Ctx, work: &Path, project_xml: &Path, pkg: &Path) -> Result<u64, String> {
+    let st = ctx.state();
+    let settings = st.store.settings();
+    let sdk = sim::find_sdk(&settings.sdk_path).ok_or("Nie znaleziono MSFS 2024 SDK – wskaż jego folder w ustawieniach")?;
     if sim::is_running() {
         return Err("Zamknij Microsoft Flight Simulator 2024 – kompilator pakietów uruchamia własną instancję symulatora".into());
     }
-    ctx.progress("build", 1, 3, "Kompilacja (fspackagetool)…");
-    let project_xml = package::short_path(Path::new(&sum.project_xml));
-    let work_s = package::short_path(&work);
+    let project_xml = package::short_path(project_xml);
+    let work_s = package::short_path(work);
     let mut cmd = std::process::Command::new(&sdk.package_tool);
     cmd.arg(&project_xml).arg("-outputdir").arg(&work_s).arg("-rebuild").arg("-nopause");
     let force_steam = match settings.build_store.as_str() {
@@ -935,23 +982,52 @@ fn stage_build(ctx: &Ctx, install: bool) -> Result<Value, String> {
     }
     let _ = std::fs::write(work.join("build.log"), &log);
     ctx.check()?;
-    let pkg = built_package(&st, &p);
     if !status.success() || !pkg.join("layout.json").exists() {
         let hint = log.lines().rev().find(|l| l.to_lowercase().contains("error")).unwrap_or("").trim().to_string();
         return Err(format!("Kompilacja nie powiodła się (kod {}){}", status.code().unwrap_or(-1), if hint.is_empty() { String::new() } else { format!(": {hint}") }));
     }
     let secs = started.elapsed().as_secs();
     ctx.log(&format!("Gotowe w {secs} s: {}", pkg.display()));
-    set_status(ctx, "build", format!("{}|ok|{}", store::now(), store::dir_size(&pkg)));
     if !settings.keep_sources {
         let _ = std::fs::remove_dir_all(work.join("_PackageInt"));
     }
+    Ok(secs)
+}
+
+// ── Pakiet testowy oświetlenia ──
+
+fn test_dir(st: &AppState, id: &str) -> PathBuf {
+    st.store.project_dir(id).join("msfs-test")
+}
+
+/// Mały pakiet z rzędem każdego rodzaju lampy w środku obszaru – szybka kalibracja
+/// jasności, barwy i kierunku wysięgników w symulatorze.
+fn stage_testlights(ctx: &Ctx, install: bool) -> Result<Value, String> {
+    let st = ctx.state();
+    let p = st.store.project(&ctx.project)?;
+    require_area(&p)?;
+    ctx.progress("build", 0, 3, "Zapis źródeł…");
+    let lights = lights::test_pattern(p.center(), &p.lights, &p.obstacles);
+    let mut tp = p.clone();
+    tp.package.name = format!("{}-test", package::package_name(&p));
+    tp.package.title = format!("{} – test oświetlenia", if p.package.title.is_empty() { &p.name } else { &p.package.title });
+    tp.terrain.enabled = false;
+    let work = test_dir(&st, &ctx.project);
+    let thumb = package::thumbnail(None, &lights, &tp.name);
+    let sum = package::write_sources(&work, &tp, None, &lights, &[], thumb.as_deref(), tp.lights.far_lod)?;
+    ctx.log(&format!("Pakiet testowy: {} lamp, {} modeli w środku obszaru ({:.5}, {:.5})", sum.lights, sum.models, p.center().lat, p.center().lon));
+    if sim::find_sdk(&st.store.settings().sdk_path).is_none() {
+        return Ok(json!({"sources": sum, "compiled": false, "reason": "sdk", "test": true}));
+    }
+    ctx.progress("build", 1, 3, "Kompilacja (fspackagetool)…");
+    let pkg = work.join("Packages").join(package::package_name(&tp));
+    let secs = compile_with_sdk(ctx, &work, Path::new(&sum.project_xml), &pkg)?;
     let mut installed = Value::Null;
     if install {
         ctx.progress("build", 2, 3, "Instalacja w Community…");
-        installed = json!(do_install(&st, &p)?);
+        installed = json!(install_dir(&st, &pkg, &package::package_name(&tp))?);
     }
-    Ok(json!({"sources": sum, "compiled": true, "package": pkg, "seconds": secs, "installed": installed}))
+    Ok(json!({"sources": sum, "compiled": true, "package": pkg, "seconds": secs, "installed": installed, "test": true, "center": p.center()}))
 }
 
 #[derive(Serialize)]
@@ -967,6 +1043,8 @@ struct PackageStatus {
     linked: bool,
     community: Option<String>,
     log: bool,
+    test_dir: String,
+    test_built: bool,
 }
 
 #[tauri::command]
@@ -976,6 +1054,8 @@ async fn package_status(state: St<'_>, id: String) -> Result<PackageStatus, Stri
     let pkg = built_package(&state, &p);
     let work = work_dir(&state, &id);
     let name = package::package_name(&p);
+    let tdir = test_dir(&state, &id);
+    let tname = format!("{name}-test");
     tauri::async_runtime::spawn_blocking(move || {
         let community = sim::community(&settings.community_path);
         let target = community.as_ref().map(|c| c.join(&name));
@@ -992,6 +1072,8 @@ async fn package_status(state: St<'_>, id: String) -> Result<PackageStatus, Stri
             installed,
             linked,
             community: community.map(|c| c.to_string_lossy().into_owned()),
+            test_built: tdir.join("Packages").join(&tname).join("layout.json").exists(),
+            test_dir: tdir.to_string_lossy().into_owned(),
         })
     })
     .await
@@ -999,8 +1081,12 @@ async fn package_status(state: St<'_>, id: String) -> Result<PackageStatus, Stri
 }
 
 fn do_install(st: &AppState, p: &Project) -> Result<String, String> {
+    install_dir(st, &built_package(st, p), &package::package_name(p))
+}
+
+/// Instalacja zbudowanego pakietu w Community (kopia albo łącze katalogu).
+fn install_dir(st: &AppState, pkg: &Path, name: &str) -> Result<String, String> {
     let settings = st.store.settings();
-    let pkg = built_package(st, p);
     if !pkg.join("layout.json").exists() {
         return Err("Pakiet nie jest jeszcze zbudowany".into());
     }
@@ -1008,12 +1094,12 @@ fn do_install(st: &AppState, p: &Project) -> Result<String, String> {
     if !community.is_dir() {
         return Err(format!("Folder Community nie istnieje: {}", community.display()));
     }
-    let target = community.join(package::package_name(p));
+    let target = community.join(name);
     package::remove_installed(&target)?;
     if settings.install_mode == "link" {
-        package::make_link(&target, &pkg)?;
+        package::make_link(&target, pkg)?;
     } else {
-        package::copy_dir(&pkg, &target)?;
+        package::copy_dir(pkg, &target)?;
     }
     Ok(target.to_string_lossy().into_owned())
 }
@@ -1052,6 +1138,85 @@ async fn export_zip(state: St<'_>, id: String, path: String) -> Result<u64, Stri
 #[tauri::command]
 fn build_log(state: St, id: String) -> String {
     std::fs::read_to_string(work_dir(&state, &id).join("build.log")).unwrap_or_default()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstalledPackage {
+    name: String,
+    title: String,
+    path: String,
+    bytes: u64,
+    linked: bool,
+    project: Option<String>,
+    project_name: Option<String>,
+    test: bool,
+}
+
+/// Nazwy pakietów, które należą do projektów aplikacji (z wariantem testowym).
+fn own_packages(st: &AppState) -> HashMap<String, (String, String)> {
+    let mut m = HashMap::new();
+    for p in st.store.projects() {
+        let n = package::package_name(&p);
+        m.insert(format!("{n}-test"), (p.id.clone(), p.name.clone()));
+        m.insert(n, (p.id.clone(), p.name.clone()));
+    }
+    m
+}
+
+#[tauri::command]
+async fn installed_packages(state: St<'_>) -> Result<Vec<InstalledPackage>, String> {
+    let own = own_packages(&state);
+    let custom = state.store.settings().community_path;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dirs: Vec<PathBuf> = sim::detect().into_iter().flat_map(|i| i.communities).map(PathBuf::from).collect();
+        if let Some(c) = sim::community(&custom) {
+            dirs.push(c);
+        }
+        dirs.sort();
+        dirs.dedup();
+        let mut out = vec![];
+        for d in dirs {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let mine = own.get(&name);
+                // Pakiety z projektów aplikacji oraz każde „fsos-…” (np. z usuniętego projektu).
+                if mine.is_none() && !name.starts_with("fsos-") {
+                    continue;
+                }
+                let path = e.path();
+                let manifest: Value = store::read_json(&path.join("manifest.json")).unwrap_or(Value::Null);
+                out.push(InstalledPackage {
+                    title: manifest.get("title").and_then(|t| t.as_str()).unwrap_or(&name).to_string(),
+                    linked: package::is_link(&path),
+                    bytes: if package::is_link(&path) { 0 } else { store::dir_size(&path) },
+                    path: path.to_string_lossy().into_owned(),
+                    project: mine.map(|m| m.0.clone()),
+                    project_name: mine.map(|m| m.1.clone()),
+                    test: name.ends_with("-test"),
+                    name,
+                });
+            }
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn remove_installed_package(state: St<'_>, path: String) -> Result<(), String> {
+    if sim::is_running() {
+        return Err("Zamknij symulator przed usunięciem pakietu".into());
+    }
+    let list = installed_packages(state).await?;
+    // Usuwamy wyłącznie pakiety z listy aplikacji – nigdy dowolną ścieżkę.
+    if !list.iter().any(|p| p.path == path) {
+        return Err("To nie jest pakiet utworzony przez aplikację".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || package::remove_installed(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
 // ───────────────────────────── Pamięć podręczna ─────────────────────────────
@@ -1205,6 +1370,7 @@ pub fn run() {
             terrain_summary,
             terrain_preview,
             terrain_profile,
+            export_terrain_tiff,
             lights_data,
             export_lights_geojson,
             preview_3d,
@@ -1213,6 +1379,8 @@ pub fn run() {
             uninstall_package,
             export_zip,
             build_log,
+            installed_packages,
+            remove_installed_package,
             cache_info,
             clear_cache,
             check_update,
@@ -1233,8 +1401,8 @@ mod e2e {
         let work = std::env::temp_dir().join("fsos-e2e");
         let _ = std::fs::remove_dir_all(&work);
         // Okolice Plant i Rynku w Krakowie, ~1,2 × 1 km.
-        let ring = vec![LatLon::new(50.0570, 19.9300), LatLon::new(50.0570, 19.9470), LatLon::new(50.0660, 19.9470), LatLon::new(50.0660, 19.9300)];
-        let mut p = Project { id: "e2e".into(), name: "Kraków e2e".into(), ..Default::default() };
+        let ring = vec![LatLon::new(50.0470, 19.9260), LatLon::new(50.0470, 19.9520), LatLon::new(50.0675, 19.9520), LatLon::new(50.0675, 19.9260)];
+        let mut p = Project { id: "e2e".into(), name: "Kraków – Stare Miasto i Wawel".into(), ..Default::default() };
         p.area = Area { outer: ring, holes: vec![] };
         apply_regional_defaults(&mut p);
         p.vegetation.enabled = true;
@@ -1247,10 +1415,11 @@ mod e2e {
         let b = p.area.bbox().grow_m(50.0);
         let mosaic = terrain::build_mosaic(&p.terrain, &cache, &b, &mut warnings).expect("mozaika");
         let lakes = terrain::lakes(&els, &b, &mosaic, p.terrain.resolution);
+        let rwys = terrain::runways(&els, &b, &mosaic);
         let done = AtomicUsize::new(0);
         let cancel = AtomicBool::new(false);
         let t0 = std::time::Instant::now();
-        let ter = terrain::compute(&p.terrain, &p.area, &mosaic, &lakes, terrain::Progress { done: &done, cancel: &cancel }, warnings).expect("teren");
+        let ter = terrain::compute(&p.terrain, &p.area, &mosaic, &lakes, &rwys, terrain::Progress { done: &done, cancel: &cancel }, warnings).expect("teren");
         let s = &ter.summary;
         println!("Teren: {} kafli, {:.1}–{:.1} m, {:?}, {:.1}s", s.tiles, s.min, s.max, s.sources, t0.elapsed().as_secs_f64());
         assert!(s.tiles > 0 && s.min > 180.0 && s.max < 280.0);
@@ -1264,5 +1433,14 @@ mod e2e {
         let thumb = package::thumbnail(Some(&png), &gen.lights, "x");
         let sum = package::write_sources(&work.join("msfs"), &p, Some(&ter), &gen.lights, &veg, thumb.as_deref(), true).expect("źródła");
         println!("Źródła: {:?}", sum);
+        use base64::Engine;
+        let ui = json!({
+            "project": p,
+            "lights": lights_value(&gen.lights),
+            "preview3d": preview3d_value(&p.area, Some(&ter), &gen.lights),
+            "terrainSummary": ter.summary,
+            "terrainPreview": {"url": format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png)), "bbox": p.area.bbox()},
+        });
+        std::fs::write(work.join("ui-data.json"), serde_json::to_vec(&ui).unwrap()).unwrap();
     }
 }

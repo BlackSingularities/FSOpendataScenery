@@ -94,6 +94,10 @@ pub struct Summary {
     pub skipped_sea: usize,
     pub skipped_nodata: usize,
     pub lakes: usize,
+    pub runways: usize,
+    /// Opis wyrównanych pasów: oznaczenie, długość, nachylenie.
+    #[serde(default)]
+    pub runway_info: Vec<String>,
     pub min: f32,
     pub max: f32,
     pub resolution: f64,
@@ -243,6 +247,100 @@ pub fn lakes(elements: &[Element], area: &BBox, mosaic: &Mosaic, res: f64) -> Ve
     out
 }
 
+/// Pas startowy z OSM: oś, szerokość i wyrównany profil podłużny (prosta dopasowana
+/// metodą najmniejszych kwadratów do wysokości wzdłuż osi). Teren pod pasem i poboczem
+/// staje się gładki, a dalej łagodnie wraca do danych.
+pub struct Runway {
+    pub ident: String,
+    loc: geo::Local,
+    ax: (f64, f64),
+    dir: (f64, f64),
+    len: f64,
+    half: f64,
+    h0: f64,
+    slope: f64,
+    pub bbox: BBox,
+}
+
+/// Pobocze płaskie jak pas i strefa przejścia do terenu z danych (m).
+const RWY_SHOULDER: f64 = 12.0;
+const RWY_BLEND: f64 = 60.0;
+
+impl Runway {
+    /// Wysokość wyrównana i waga (1 – w pełni płasko, 0 – bez zmian) w punkcie.
+    pub fn flatten(&self, p: LatLon) -> Option<(f32, f32)> {
+        let (x, y) = self.loc.to_xy(p);
+        let (rx, ry) = (x - self.ax.0, y - self.ax.1);
+        let s = rx * self.dir.0 + ry * self.dir.1;
+        let d = (rx * -self.dir.1 + ry * self.dir.0).abs();
+        let ext = RWY_SHOULDER + RWY_BLEND;
+        if s < -ext || s > self.len + ext || d > self.half + ext {
+            return None;
+        }
+        let sc = s.clamp(0.0, self.len);
+        let h = self.h0 + self.slope * sc;
+        // Odległość od prostokąta pasa (z poboczem) – w poprzek i wzdłuż za progami.
+        let over_d = (d - self.half - RWY_SHOULDER).max(0.0);
+        let over_s = if s < 0.0 { -s } else if s > self.len { s - self.len } else { 0.0 };
+        let over = (over_d * over_d + over_s * over_s).sqrt();
+        if over >= RWY_BLEND {
+            return None;
+        }
+        let t = over / RWY_BLEND;
+        let w = 1.0 - t * t * (3.0 - 2.0 * t);
+        Some((h as f32, w as f32))
+    }
+}
+
+pub fn runways(elements: &[Element], area: &BBox, mosaic: &Mosaic) -> Vec<Runway> {
+    let mut out = vec![];
+    for e in elements.iter().filter(|e| e.is("aeroway", "runway") && !e.is_area() && e.line.len() >= 2) {
+        let a = e.line[0];
+        let b = *e.line.last().unwrap();
+        let bb = BBox::of(&[a, b]).grow_m(200.0);
+        if !bb.intersects(area) {
+            continue;
+        }
+        let loc = geo::Local::new(a);
+        let (bx, by) = loc.to_xy(b);
+        let len = (bx * bx + by * by).sqrt();
+        if len < 150.0 {
+            continue;
+        }
+        let dir = (bx / len, by / len);
+        let grass = matches!(e.tag("surface"), Some("grass") | Some("dirt") | Some("ground") | Some("gravel") | Some("unpaved"));
+        let width = e.tag("width").and_then(crate::osm::parse_height).filter(|w| (8.0..90.0).contains(w)).unwrap_or(if grass { 25.0 } else { 40.0 });
+        // Profil: wysokości co ~10 m po osi i w dwóch liniach równoległych, prosta MNK.
+        let n = ((len / 10.0) as usize).clamp(8, 600);
+        let (mut sx, mut sy, mut sxx, mut sxy, mut cnt) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        for k in 0..=n {
+            let s = len * k as f64 / n as f64;
+            for off in [-width / 4.0, 0.0, width / 4.0] {
+                let p = loc.to_ll(dir.0 * s - dir.1 * off, dir.1 * s + dir.0 * off);
+                if let Some((v, _)) = mosaic.sample(p) {
+                    let v = v as f64;
+                    sx += s;
+                    sy += v;
+                    sxx += s * s;
+                    sxy += s * v;
+                    cnt += 1.0;
+                }
+            }
+        }
+        if cnt < 8.0 {
+            continue;
+        }
+        let den = cnt * sxx - sx * sx;
+        let slope = if den.abs() > 1e-9 { (cnt * sxy - sx * sy) / den } else { 0.0 };
+        // Pasy mają nachylenie do ~2% – większe to szum danych albo błędna oś.
+        let slope = slope.clamp(-0.02, 0.02);
+        let h0 = (sy - slope * sx) / cnt;
+        let ident = e.tag("ref").unwrap_or("").to_string();
+        out.push(Runway { ident, loc, ax: (0.0, 0.0), dir, len, half: width / 2.0, h0: h0 - mosaic.offset as f64, slope, bbox: BBox::of(&[a, b]).grow_m(width / 2.0 + RWY_SHOULDER + RWY_BLEND) });
+    }
+    out
+}
+
 fn gaussian_blur(data: &mut [f32], w: usize, h: usize, sigma: f64) {
     if sigma < 0.3 {
         return;
@@ -338,7 +436,7 @@ pub struct Progress<'a> {
     pub cancel: &'a AtomicBool,
 }
 
-pub fn compute(cfg: &TerrainCfg, area: &Area, mosaic: &Mosaic, lakes: &[Lake], prog: Progress, mut warnings: Vec<String>) -> Result<Terrain, String> {
+pub fn compute(cfg: &TerrainCfg, area: &Area, mosaic: &Mosaic, lakes: &[Lake], runways: &[Runway], prog: Progress, mut warnings: Vec<String>) -> Result<Terrain, String> {
     let grid = GridSpec::new(&area.bbox(), cfg.resolution, cfg.tile as usize);
     let list = grid.tiles_for(area);
     if list.is_empty() {
@@ -406,6 +504,27 @@ pub fn compute(cfg: &TerrainCfg, area: &Area, mosaic: &Mosaic, lakes: &[Lake], p
                     }
                 }
             }
+            // Pasy startowe: gładki profil podłużny, płasko w poprzek, łagodne przejście.
+            let near_rwy: Vec<&Runway> = runways.iter().filter(|r| r.bbox.intersects(&tb)).collect();
+            if !near_rwy.is_empty() {
+                for y in 0..n {
+                    for x in 0..n {
+                        let p = LatLon::new(grid.lat0 + (tj as i64 * (n as i64 - 1) + y as i64) as f64 * grid.dlat, grid.lon0 + (ti as i64 * (n as i64 - 1) + x as i64) as f64 * grid.dlon);
+                        let mut best: Option<(f32, f32)> = None;
+                        for r in &near_rwy {
+                            if let Some(f) = r.flatten(p) {
+                                if best.map(|b| f.1 > b.1).unwrap_or(true) {
+                                    best = Some(f);
+                                }
+                            }
+                        }
+                        if let Some((rh, wgt)) = best {
+                            let v = &mut h[y * n + x];
+                            *v = *v * (1.0 - wgt) + (rh + mosaic.offset) * wgt;
+                        }
+                    }
+                }
+            }
             let (mut lo, mut hi, mut sum) = (f32::MAX, f32::MIN, 0.0f64);
             for v in &h {
                 lo = lo.min(*v);
@@ -450,6 +569,8 @@ pub fn compute(cfg: &TerrainCfg, area: &Area, mosaic: &Mosaic, lakes: &[Lake], p
     summary.samples = tiles.len() * n * n;
     summary.xml_mb = summary.samples as f64 * 7.5 / 1e6;
     summary.lakes = lakes.len();
+    summary.runways = runways.len();
+    summary.runway_info = runways.iter().map(|r| format!("{} · {:.2} km · {:.2}%", if r.ident.is_empty() { "RWY" } else { &r.ident }, r.len / 1000.0, r.slope * 100.0)).collect();
     let total: usize = src_count.iter().map(|c| c.load(Ordering::Relaxed)).sum::<usize>() + lake_hits.load(Ordering::Relaxed);
     if total > 0 {
         for (i, s) in mosaic.sources.iter().enumerate() {
@@ -583,6 +704,46 @@ impl Terrain {
         Ok((out.into_inner(), b))
     }
 
+    /// Zapis policzonego terenu jako GeoTIFF (WGS 84, float32, krok siatki projektu,
+    /// −9999 poza kaflami). Zwraca wymiary obrazu.
+    pub fn write_geotiff(&self, path: &Path) -> Result<(u32, u32), String> {
+        use tiff::encoder::{colortype, TiffEncoder};
+        use tiff::tags::Tag;
+        let span = (self.grid.n - 1) as i32;
+        let (i0, i1) = (self.tiles.iter().map(|t| t.i).min().ok_or("Brak policzonego terenu")?, self.tiles.iter().map(|t| t.i).max().unwrap_or(0));
+        let (j0, j1) = (self.tiles.iter().map(|t| t.j).min().unwrap_or(0), self.tiles.iter().map(|t| t.j).max().unwrap_or(0));
+        let w = ((i1 - i0 + 1) * span + 1) as u32;
+        let h = ((j1 - j0 + 1) * span + 1) as u32;
+        if (w as u64) * (h as u64) > 400_000_000 {
+            return Err("Teren jest za duży na jeden plik GeoTIFF".into());
+        }
+        let mut data = vec![-9999f32; (w * h) as usize];
+        for t in &self.tiles {
+            let n = self.grid.n;
+            for y in 0..n {
+                for x in 0..n {
+                    let gx = ((t.i - i0) * span) as usize + x;
+                    let gy_s = ((t.j - j0) * span) as usize + y;
+                    let row = h as usize - 1 - gy_s;
+                    data[row * w as usize + gx] = t.h[y * n + x];
+                }
+            }
+        }
+        let lon0 = self.grid.lon0 + (i0 * span) as f64 * self.grid.dlon;
+        let lat_top = self.grid.lat0 + ((j1 + 1) * span) as f64 * self.grid.dlat;
+        let f = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut enc = TiffEncoder::new(std::io::BufWriter::new(f)).map_err(|e| e.to_string())?;
+        let mut img = enc.new_image::<colortype::Gray32Float>(w, h).map_err(|e| e.to_string())?;
+        let e = img.encoder();
+        // Próbki są w węzłach siatki – RasterPixelIsPoint.
+        e.write_tag(Tag::from_u16_exhaustive(33550), &[self.grid.dlon, self.grid.dlat, 0.0][..]).map_err(|e| e.to_string())?;
+        e.write_tag(Tag::from_u16_exhaustive(33922), &[0.0, 0.0, 0.0, lon0, lat_top, 0.0][..]).map_err(|e| e.to_string())?;
+        e.write_tag(Tag::from_u16_exhaustive(34735), &[1u16, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 2, 2048, 0, 1, 4326][..]).map_err(|e| e.to_string())?;
+        e.write_tag(Tag::from_u16_exhaustive(42113), "-9999").map_err(|e| e.to_string())?;
+        img.write_data(&data).map_err(|e| e.to_string())?;
+        Ok((w, h))
+    }
+
     /// Siatka do podglądu 3D (co najwyżej `max_n` próbek na bok).
     pub fn grid3d(&self, area: &Area, max_n: usize) -> Grid3d {
         let b = area.bbox();
@@ -697,7 +858,7 @@ mod tests {
         let cfg = TerrainCfg { resolution: 5.0, tile: 33, ..Default::default() };
         let done = AtomicUsize::new(0);
         let cancel = AtomicBool::new(false);
-        let t = compute(&cfg, &area, &mosaic, &[], Progress { done: &done, cancel: &cancel }, vec![]).unwrap();
+        let t = compute(&cfg, &area, &mosaic, &[], &[], Progress { done: &done, cancel: &cancel }, vec![]).unwrap();
         assert!(t.summary.tiles > 4);
         let p = LatLon::new(50.007, 19.006);
         let v = t.sample(p).unwrap();
@@ -710,12 +871,53 @@ mod tests {
         assert!((t2.sample(p).unwrap() - v).abs() < 1e-6);
         let (png, _) = t2.preview_png(&area, 256).unwrap();
         assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+        // GeoTIFF czyta się z powrotem naszym czytnikiem w tym samym miejscu.
+        let tif = path.with_extension("tif");
+        t2.write_geotiff(&tif).unwrap();
+        let back = dem::read_file(&tif, 0, false).unwrap();
+        assert_eq!(back.epsg, 4326);
+        assert!((back.sample(p).unwrap() - v).abs() < 0.05, "{:?}", back.sample(p));
+        let _ = std::fs::remove_file(tif);
         let _ = std::fs::remove_file(path);
         // Płaszczyzna jest „bez szczegółów” – przy pomijaniu płaskich kafli nic nie zostaje.
         let cfg2 = TerrainCfg { skip_flat: true, skip_threshold: 0.05, ..cfg };
-        let t3 = compute(&cfg2, &area, &mosaic, &[], Progress { done: &done, cancel: &cancel }, vec![]).unwrap();
+        let t3 = compute(&cfg2, &area, &mosaic, &[], &[], Progress { done: &done, cancel: &cancel }, vec![]).unwrap();
         assert_eq!(t3.summary.tiles, 0);
         assert!(t3.summary.skipped_flat > 0);
+    }
+
+    #[test]
+    fn runway_is_flattened() {
+        // Teren z „garbami” co kilka metrów; pas wschód–zachód przez środek.
+        let (w, h) = (300usize, 300usize);
+        let d = 0.0001;
+        let mut data = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                data[y * w + x] = (200.0 + 3.0 * ((x as f64 * 1.7).sin() * (y as f64 * 1.3).cos())) as f32;
+            }
+        }
+        let r = Raster::new(w, h, data, 4326, 19.0, 50.03, d, d, None).unwrap();
+        let fp = r.footprint();
+        let mosaic = Mosaic { sources: vec![Box::new(dem::FileSource { name: "t".into(), raster: r, footprint: fp, offset: 0.0 })], offset: 0.0 };
+        let mut tags = std::collections::HashMap::new();
+        tags.insert("aeroway".to_string(), "runway".to_string());
+        tags.insert("width".to_string(), "30".to_string());
+        let rwy = Element { t: 'w', id: 1, tags, line: vec![LatLon::new(50.015, 19.006), LatLon::new(50.015, 19.024)], ..Default::default() };
+        let area = square(50.006, 19.004, 0.018);
+        let rws = runways(&[rwy], &area.bbox(), &mosaic);
+        assert_eq!(rws.len(), 1);
+        let cfg = TerrainCfg { resolution: 3.0, tile: 65, ..Default::default() };
+        let done = AtomicUsize::new(0);
+        let cancel = AtomicBool::new(false);
+        let t = compute(&cfg, &area, &mosaic, &[], &rws, Progress { done: &done, cancel: &cancel }, vec![]).unwrap();
+        let hs: Vec<f32> = (0..50).map(|k| t.sample(LatLon::new(50.015 + 0.00005 * ((k % 3) as f64 - 1.0), 19.007 + k as f64 * 0.0003)).unwrap()).collect();
+        let spread = hs.iter().cloned().fold(f32::MIN, f32::max) - hs.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(spread < 0.3, "pas nierówny: {spread}");
+        // 300 m od pasa teren zostaje z danych.
+        let far = LatLon::new(50.0123, 19.015);
+        let orig = mosaic.sample(far).unwrap().0;
+        assert!((t.sample(far).unwrap() - orig).abs() < 0.2);
     }
 
     #[test]

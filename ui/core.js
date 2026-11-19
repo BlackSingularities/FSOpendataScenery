@@ -196,7 +196,7 @@ export async function startJob(kind, opts = {}) {
   try {
     const id = await invoke('start_job', { project: S.project.id, kind, install: !!opts.install });
     S.jobs.set(id, { project: S.project.id, kind, stage: 'start', done: 0, total: 0, message: '' });
-    if (kind === 'build' || kind === 'all') S.logs.set(S.project.id, []);
+    if (kind === 'build' || kind === 'all' || kind === 'testlights') S.logs.set(S.project.id, []);
     renderJobs();
     renderView();
   } catch (e) { fail(e); }

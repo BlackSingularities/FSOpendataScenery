@@ -5,7 +5,7 @@ import { initFeedback } from './feedback.js';
 import { renderDashboard, renderSettings } from './views.js';
 import { renderArea, renderTerrain, renderLights, renderObjects, renderBuild, paintLog } from './editor.js';
 import { render3d, leave3d } from './view3d.js';
-import { drawArea } from './map.js';
+import { drawArea, undoArea } from './map.js';
 
 initFeedback({ app: 'fsopendatascenery', appName: 'FS Opendata Scenery', version: () => T.app.getVersion(), lang: () => lang(), platform: 'windows' });
 
@@ -117,7 +117,10 @@ listen('job', async (ev) => {
   const pname = S.projects.find((p) => p.id === j.project)?.name || '';
   if (j.state === 'done') {
     const r = j.result || {};
-    if (j.kind === 'build' || j.kind === 'all') {
+    if (j.kind === 'testlights') {
+      if (r.compiled) toast(r.installed ? t('testInstalled') : t('testDone'), 'ok', 9000);
+      else toast(t('sourcesOnly'), 'warn', 9000);
+    } else if (j.kind === 'build' || j.kind === 'all') {
       const b = j.kind === 'all' ? r.build : r;
       if (b?.compiled) toast(b.installed ? t('buildInstalled', pname) : t('buildDone', pname));
       else if (b?.reason === 'sdk') toast(t('sourcesOnly'), 'warn', 9000);
@@ -162,6 +165,17 @@ async function checkUpdate(silent) {
   } catch (e) { if (!silent) fail(e); }
 }
 
+async function welcome() {
+  const steps = [1, 2, 3, 4, 5].map((i) => `<div class="check ok">${icon(['area', 'terrain', 'lights', 'objects', 'build'][i - 1])}<div class="grow"><div class="t">${i}. ${esc(t(`how${i}`))}</div><div class="d">${esc(t(`how${i}d`))}</div></div></div>`).join('');
+  const go1 = await dialog({
+    title: t('welcomeTitle'),
+    body: `<div>${esc(t('welcomeD'))}</div>${steps}<div class="note">${icon('info')}<div>${esc(t('welcomeSdk'))}</div></div>`,
+    wide: true,
+    actions: [{ label: t('later'), value: false }, { label: t('newProject'), kind: 'primary', value: true }],
+  });
+  if (go1) newProject();
+}
+
 // ───────── Start ─────────
 window.addEventListener('go', (e) => go(e.detail));
 window.addEventListener('open-project', (e) => openProject(e.detail));
@@ -178,6 +192,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input,textarea,select,[contenteditable]') || $('.dialog-wrap')) return;
   if (!e.ctrlKey && !e.altKey && /^[1-7]$/.test(e.key)) go(NAV[+e.key - 1][0]);
   if (e.ctrlKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newProject(); }
+  if (e.ctrlKey && e.key.toLowerCase() === 'z' && S.view === 'area') { e.preventDefault(); if (undoArea()) toast(t('areaUndone')); }
   if (e.key === 'F5') { e.preventDefault(); renderView(); }
 });
 
@@ -199,6 +214,7 @@ document.addEventListener('keydown', (e) => {
     if (!settings.onboarded) {
       settings.onboarded = true;
       invoke('save_settings', { settings }).catch(() => {});
+      setTimeout(welcome, 600);
     }
   } catch (e) {
     $('#view').innerHTML = `<div class="loading">${icon('error')}<div>${esc(String(e))}</div></div>`;

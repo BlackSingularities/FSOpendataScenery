@@ -4,6 +4,7 @@ import {
   bindInputs, startJob, projectJob, stageInfo, opener, dialogApi, renderView, flushSave,
 } from './core.js';
 import { mountMap, setTerrainOverlay, setTerrainOpacity, setFootprints, setLights, setLegend, useTool, drawManual, getMap, clearProfile, setHint, areaRing } from './map.js';
+import { lang } from './i18n.js';
 
 const shell = (panel, tools = 'workspace') => `<div class="${tools}"><div class="mapslot"></div><aside class="panel">${panel}</aside></div>`;
 const sw = (bind) => `<button class="switch" data-bind="${bind}" aria-label="${esc(bind)}"></button>`;
@@ -125,7 +126,9 @@ export function renderTerrain(view) {
   view.classList.add('flush');
   const all = Object.keys(SOURCES);
   const order = [...tc.sources.filter((s) => all.includes(s)), ...all.filter((s) => !tc.sources.includes(s))];
-  const crsOpts = (sel) => `<option value="0" ${!sel ? 'selected' : ''}>${esc(t('auto'))}</option>${S.info.crs.map(([c, n]) => `<option value="${c}" ${+sel === c ? 'selected' : ''}>EPSG:${c} · ${esc(n)}</option>`).join('')}`;
+  // Nazwy układów z backendu są po polsku – w angielskim interfejsie tłumaczymy dwa słowa.
+  const crsName = (n) => (lang() === 'pl' ? n : n.replace('(stopnie)', '(degrees)').replace('strefa', 'zone'));
+  const crsOpts = (sel) => `<option value="0" ${!sel ? 'selected' : ''}>${esc(t('auto'))}</option>${S.info.crs.map(([c, n]) => `<option value="${c}" ${+sel === c ? 'selected' : ''}>EPSG:${c} · ${esc(crsName(n))}</option>`).join('')}`;
   const ti = stageInfo('terrain');
   view.innerHTML = shell(`
     <div class="ph"><h2>${icon('terrain')}${esc(t('nav_terrain'))}<span class="grow"></span>${sw('terrain.enabled')}</h2><p>${esc(t('terrainLead'))}</p></div>
@@ -155,6 +158,7 @@ export function renderTerrain(view) {
         ${frow(t('smooth'), unit('terrain.smooth', 'm', 'min="0" max="60"'), t('smoothD'))}
         ${frow(t('vOffset'), unit('terrain.offset', 'm', 'min="-200" max="200"'), t('vOffsetD'))}
         <label class="toggle-row"><div class="grow"><div class="t">${esc(t('hydro'))}</div><div class="d">${esc(t('hydroD'))}</div></div>${sw('terrain.hydro')}</label>
+        <label class="toggle-row"><div class="grow"><div class="t">${esc(t('flattenRunways'))}</div><div class="d">${esc(t('flattenRunwaysD'))}</div></div>${sw('terrain.flattenRunways')}</label>
         <label class="toggle-row"><div class="grow"><div class="t">${esc(t('skipFlat'))}</div><div class="d">${esc(t('skipFlatD'))}</div></div>${sw('terrain.skipFlat')}</label>
         ${frow(t('skipThreshold'), unit('terrain.skipThreshold', 'm', 'min="0" max="10"'))}`, false)}
       ${sec('link', t('wcsAdvanced'), `
@@ -217,7 +221,7 @@ function renderFiles(crsOpts) {
   el.innerHTML = tc.files.map((f, i) => {
     const info = fileInfo.get(`${f.path}|${f.epsg}|${f.swapXy}`);
     const name = f.path.split(/[\\/]/).pop();
-    const meta = info?.error ? `<span class="c-bad">${esc(info.error)}</span>` : info ? `${num(info.w)} × ${num(info.h)} · ${num(info.resolution, info.resolution < 10 ? 2 : 0)} m · EPSG:${info.epsg} · ${num(info.min, 0)}–${num(info.max, 0)} m n.p.m.` : esc(t('reading'));
+    const meta = info?.error ? `<span class="c-bad">${esc(info.error)}</span>` : info ? `${num(info.w)} × ${num(info.h)} · ${num(info.resolution, info.resolution < 10 ? 2 : 0)} m · EPSG:${info.epsg} · ${num(info.min, 0)}–${num(info.max, 0)} ${t('unitAsl')}` : esc(t('reading'));
     return `<div class="file-row"><div class="top">${icon('file')}<span class="name" title="${esc(f.path)}">${esc(name)}</span><button class="switch ${f.enabled ? 'on' : ''}" data-fon="${i}"></button><button class="btn sm icon ghost" data-fdel="${i}" title="${esc(t('remove'))}">${icon('trash')}</button></div>
       <div class="meta">${meta}</div>
       <div class="grid3"><label>${esc(t('crs'))}<select class="inp" data-fepsg="${i}">${crsOpts(f.epsg)}</select></label>
@@ -268,10 +272,13 @@ const refreshPlan = debounce(async () => {
   if (!el || !hasArea()) return;
   try {
     const pl = await invoke('terrain_plan', { project: S.project });
-    el.innerHTML = kpi(t('tiles'), num(pl.tiles)) + kpi(t('tileEdge'), num(pl.tileSizeM), 'm') + kpi(t('samples'), num(pl.samples / 1e6, 1), 'mln') + kpi(t('xmlSize'), num(pl.xmlMb, 0), 'MB');
+    el.innerHTML = kpi(t('tiles'), num(pl.tiles)) + kpi(t('tileEdge'), num(pl.tileSizeM), 'm') + kpi(t('samples'), num(pl.samples / 1e6, 1), t('unitMln')) + kpi(t('xmlSize'), num(pl.xmlMb, 0), 'MB');
     $('#tf-planw').innerHTML = pl.tooBig ? note('bad', esc(t('planTooBig'))) : pl.xmlMb > 400 ? note('warn', esc(t('planLarge'))) : '';
   } catch { /* plan to tylko podpowiedź */ }
 }, 250);
+
+// Nazwy źródeł przychodzą z backendu – znane tłumaczymy, pliki użytkownika zostają bez zmian.
+const srcLabel = (n) => (n === 'Wody OSM (spłaszczone)' || n === 'osm-water' ? t('srcLakesFlat') : n === 'NMT GUGiK' ? t('srcname_gugik') : n);
 
 async function loadTerrainResult() {
   const el = $('#tf-result');
@@ -286,18 +293,24 @@ async function loadTerrainResult() {
   if (prev) setTerrainOverlay(prev.url, prev.bbox, 0.85);
   el.innerHTML = sec('chart', t('terrainResult'), `
     <div class="kpis">${kpi(t('tiles'), num(sum.tiles))}${kpi(t('minH'), num(sum.min, 0), 'm')}${kpi(t('maxH'), num(sum.max, 0), 'm')}${kpi(t('xmlSize'), num(sum.xmlMb, 0), 'MB')}
-      ${sum.skippedFlat ? kpi(t('skippedFlat'), num(sum.skippedFlat)) : ''}${sum.skippedSea ? kpi(t('skippedSea'), num(sum.skippedSea)) : ''}${sum.skippedNodata ? kpi(t('skippedNodata'), num(sum.skippedNodata)) : ''}${sum.lakes ? kpi(t('lakes'), num(sum.lakes)) : ''}</div>
+      ${sum.skippedFlat ? kpi(t('skippedFlat'), num(sum.skippedFlat)) : ''}${sum.skippedSea ? kpi(t('skippedSea'), num(sum.skippedSea)) : ''}${sum.skippedNodata ? kpi(t('skippedNodata'), num(sum.skippedNodata)) : ''}${sum.lakes ? kpi(t('lakes'), num(sum.lakes)) : ''}${sum.runways ? kpi(t('runways'), num(sum.runways)) : ''}</div>
+    ${(sum.runwayInfo || []).length ? `<div class="sublabel">${esc(t('runwaysFlattened'))}</div><div class="chips">${sum.runwayInfo.map((r) => `<span class="tag">${esc(r)}</span>`).join('')}</div>` : ''}
     <div class="sublabel">${esc(t('sourceShare'))}</div>
-    <div class="share">${sum.sources.map(([n, pct]) => `<div class="sr"><span>${esc(n)}</span><span class="pct">${num(pct, 1)}%</span><div class="bar"><span style="width:${pct}%"></span></div></div>`).join('')}</div>
+    <div class="share">${sum.sources.map(([n, pct]) => `<div class="sr"><span>${esc(srcLabel(n))}</span><span class="pct">${num(pct, 1)}%</span><div class="bar"><span style="width:${pct}%"></span></div></div>`).join('')}</div>
     ${(sum.warnings || []).map((w) => note('warn', esc(w))).join('')}
     <div class="sublabel">${esc(t('preview'))}</div>
     <div class="range-row"><input type="range" min="0" max="100" value="85" id="tf-op"><output id="tf-opv">85%</output></div>
-    <div class="btn-row"><button class="btn sm" id="tf-prof">${icon('chart')}${esc(t('tool_profile'))}</button><button class="btn sm" id="tf-3d">${icon('cube')}${esc(t('nav_view3d'))}</button></div>
+    <div class="btn-row"><button class="btn sm" id="tf-prof">${icon('chart')}${esc(t('tool_profile'))}</button><button class="btn sm" id="tf-3d">${icon('cube')}${esc(t('nav_view3d'))}</button><button class="btn sm" id="tf-tif">${icon('download')}GeoTIFF</button></div>
     <div id="tf-profile" class="profile"></div>
     <div class="faint">${esc(t('computedAt'))}: ${esc(sum.computed)}</div>`);
   $('#tf-op').oninput = (e) => { setTerrainOpacity(e.target.value / 100); $('#tf-opv').textContent = `${e.target.value}%`; };
   $('#tf-prof').onclick = () => useTool('profile', showProfile);
   $('#tf-3d').onclick = () => window.dispatchEvent(new CustomEvent('go', { detail: 'view3d' }));
+  $('#tf-tif').onclick = async () => {
+    const path = await dialogApi.save({ defaultPath: `${S.project.package.name || 'teren'}.tif`, filters: [{ name: 'GeoTIFF', extensions: ['tif'] }] });
+    if (!path) return;
+    try { const [w, h] = await invoke('export_terrain_tiff', { id: S.project.id, path }); toast(t('tiffSaved', `${num(w)} × ${num(h)}`)); } catch (e) { fail(e); }
+  };
 }
 
 async function showProfile(a, b) {
@@ -552,6 +565,8 @@ export async function renderBuild(view) {
       <div class="set-row"><div class="grow"><div class="t">${esc(t('buildAll'))}</div><div class="d">${esc(t('buildAllD'))}</div></div><button class="btn primary" id="bd-all" ${job || !hasArea() ? 'disabled' : ''}>${icon('rocket')}${esc(t('buildAllBtn'))}</button></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('buildOnly'))}</div><div class="d">${esc(t('buildOnlyD'))}</div></div>
         <div class="btn-row"><button class="btn" id="bd-build" ${job || !hasArea() ? 'disabled' : ''}>${icon('build')}${esc(t('build'))}</button><button class="btn" id="bd-binst" ${job || !hasArea() || !env?.sdk ? 'disabled' : ''}>${icon('download')}${esc(t('buildInstall'))}</button></div></div>
+      <div class="set-row"><div class="grow"><div class="t">${esc(t('testPkg'))}</div><div class="d">${esc(t('testPkgD'))}${pkg?.testBuilt ? ` · <span class="c-ok">${esc(t('testBuilt'))}</span>` : ''}</div></div>
+        <div class="btn-row"><button class="btn sm" id="bd-test" ${job || !hasArea() ? 'disabled' : ''}>${icon('lamp')}${esc(env?.sdk ? t('testBuildInstall') : t('testSources'))}</button><button class="btn sm icon" id="bd-testdir" title="${esc(t('openSources'))}" ${pkg?.testDir ? '' : 'disabled'}>${icon('folder')}</button></div></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('installTitle'))}</div><div class="d">${pkg?.installed ? `${esc(t('installedAt'))}: ${esc(pkg.installed)}${pkg.linked ? ` (${esc(t('linked'))})` : ''}` : pkg?.built ? esc(t('builtNotInstalled', bytes(pkg.builtBytes))) : esc(t('notBuilt'))}</div></div>
         <div class="btn-row">${pkg?.installed ? `<button class="btn danger" id="bd-uninst">${icon('trash')}${esc(t('uninstall'))}</button>` : ''}<button class="btn" id="bd-inst" ${pkg?.built && !job ? '' : 'disabled'}>${icon('download')}${esc(pkg?.installed ? t('reinstall') : t('install'))}</button></div></div>
       <div class="set-row"><div class="grow"><div class="t">${esc(t('filesTitle'))}</div><div class="d">${esc(t('filesD'))}</div></div>
@@ -563,6 +578,8 @@ export async function renderBuild(view) {
   $('#bd-sdkdoc')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_Overview.htm'); });
   $('#bd-all').onclick = () => startJob('all', { install: !!env?.sdk });
   $('#bd-build').onclick = () => startJob('build');
+  $('#bd-test').onclick = () => startJob('testlights', { install: !!env?.sdk });
+  $('#bd-testdir').onclick = () => opener.openPath(pkg.testDir);
   $('#bd-binst').onclick = () => startJob('build', { install: true });
   $('#bd-inst').onclick = async () => {
     try { const path = await invoke('install_package', { id: p.id }); toast(t('installedOk', path)); renderBuild(view); } catch (e) { fail(e); }

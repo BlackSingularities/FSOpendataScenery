@@ -102,6 +102,8 @@ pub struct TerrainCfg {
     pub offset: f64,
     /// Spłaszczanie wód z OSM do jednego poziomu.
     pub hydro: bool,
+    /// Wyrównanie terenu pod pasami startowymi z OSM.
+    pub flatten_runways: bool,
     /// Pomijanie płaskich kafli, które nie dodają szczegółów.
     pub skip_flat: bool,
     pub skip_threshold: f64,
@@ -124,6 +126,7 @@ impl Default for TerrainCfg {
             smooth: 0.0,
             offset: 0.0,
             hydro: true,
+            flatten_runways: true,
             skip_flat: false,
             skip_threshold: 0.25,
             wcs_url: String::new(),

@@ -260,8 +260,20 @@ function paintDraw() {
 }
 
 // ───────── Obszar projektu ─────────
+const undoStack = [];
+export function undoArea() {
+  if (!S.project || !undoStack.length) return false;
+  S.project.area = undoStack.pop();
+  drawArea();
+  saveProjectSoon(50);
+  window.dispatchEvent(new CustomEvent('area-changed'));
+  return true;
+}
+
 async function setArea(ring) {
   if (!S.project) return;
+  undoStack.push(JSON.parse(JSON.stringify(S.project.area || { outer: [], holes: [] })));
+  if (undoStack.length > 50) undoStack.shift();
   S.project.area = { outer: ring.map(([lat, lon]) => ({ lat, lon })), holes: [] };
   drawArea();
   fitArea();
@@ -272,6 +284,7 @@ async function setArea(ring) {
 async function clearArea() {
   if (!S.project?.area?.outer?.length) return;
   if (!(await confirmBox(t('clearAreaQ'), `<div>${esc(t('clearAreaD'))}</div>`, t('delete'), true))) return;
+  undoStack.push(JSON.parse(JSON.stringify(S.project.area)));
   S.project.area = { outer: [], holes: [] };
   drawArea();
   await saveProjectSoon(50);

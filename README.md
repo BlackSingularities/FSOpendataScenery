@@ -1,5 +1,7 @@
 # FS Opendata Scenery
 
+![FS Opendata Scenery](docs/flightsimto/poster/FSOpendataScenery-poster-1920x1080.png)
+
 Generator scenerii z otwartych danych dla **Microsoft Flight Simulator 2024**. Wyznaczasz obszar na mapie, a aplikacja pobiera darmowe dane wysokościowe i OpenStreetMap, liczy dokładniejszą rzeźbę terenu, rozstawia prawdziwe latarnie ze światłem skierowanym w dół, dodaje światła przeszkodowe i latarnie morskie, usuwa drzewa z dróg i wód, a na koniec kompiluje gotowy pakiet do folderu **Community**.
 
 *English summary: an open-data scenery generator for MSFS 2024 – better terrain from free DEMs (1 m LiDAR in Poland, AWS Terrain Tiles, Copernicus, your own GeoTIFF/ASC/XYZ/HGT), real street lighting from OpenStreetMap, obstruction lights, lighthouses and tree removal, compiled into a Community package with the MSFS 2024 SDK. The UI is available in Polish and English.*
@@ -21,14 +23,18 @@ Generator scenerii z otwartych danych dla **Microsoft Flight Simulator 2024**. W
 - układy współrzędnych bez GDAL: WGS 84, Web Mercator, PL-1992, PL-2000 (strefy 5–8), UTM / ETRS89-UTM, SWEREF99, ETRS-TM35FIN, D96/TM, NZTM, szwajcarskie LV95/LV03, holenderskie RD, British National Grid; rozpoznawanie z GeoTIFF i plików `.prj`,
 - siatka prostokątów z heightmapą (`<Rectangle><Heightmap/>`) bez szwów, krok 1–30 m, łagodne przejście (falloff), priorytet,
 - wygładzanie bez szwów, przesunięcie pionowe, spłaszczanie jezior i stawów z OSM, pomijanie płaskich kafli i morza,
+- **wyrównywanie pasów startowych** z OSM: profil podłużny dopasowany do osi pasa, poprzecznie płasko, łagodne przejście na pobocza i za progi – LiDAR bez garbów pod kołami,
 - podgląd z cieniowaniem na mapie, profil wysokości, statystyki i udział źródeł,
+- eksport policzonego terenu do **GeoTIFF** (WGS 84, float32) do QGIS i innych narzędzi,
 - pamięć podręczna pobranych danych z podglądem rozmiaru i czyszczeniem.
 
 **Światła**
 - prawdziwe latarnie z OSM (`highway=street_lamp`): wysokość z tagów, mocowanie (wysięgnik, parkowa, kinkiet, podwieszana, naświetlacz), barwa (sód, LED, rtęć), wysięgnik obrócony nad najbliższą jezdnię,
 - oświetlone drogi (`lit=*`) z rozstawem, wysokością i stroną zależnymi od klasy drogi; opcjonalne zgadywanie oświetlenia w zabudowie; bez dublowania lamp z OSM i bez słupów na jezdni,
 - parkingi (siatka masztów), boiska i stadiony (maszty w narożnikach z naświetlaczami pochylonymi na płytę), perony, stacje paliw, pomosty,
+- chodniki i ścieżki wzdłuż oświetlonych ulic korzystają z ich latarni – bez podwójnych rzędów słupów,
 - lampy stawiane ręcznie, wykluczanie pojedynczych lamp z OSM, eksport do GeoJSON,
+- **pakiet testowy do kalibracji**: po trzy lampy każdej kategorii, światło przeszkodowe i latarnia morska w jednym małym pakiecie – sprawdzasz jasność i kierunek w symulatorze w minutę,
 - każda kategoria z własną wysokością, rozstawem, barwą (K), natężeniem, stożkiem, wyglądem, wysięgnikiem.
 
 **Obiekty**
@@ -42,7 +48,9 @@ Generator scenerii z otwartych danych dla **Microsoft Flight Simulator 2024**. W
 - obiekty `altitudeIsAgl` przyklejone do terenu – także do nowej rzeźby,
 - projekt MSFS 2024 SDK (definicja pakietu, XML scenerii, biblioteka modeli, miniatura), kompilacja `fspackagetool.exe` z dziennikiem na żywo,
 - instalacja w Community (kopia albo łącze katalogu), odinstalowanie, ZIP do udostępnienia, eksport i import projektu,
-- podgląd 3D terenu i świateł nocą i w dzień.
+- podgląd 3D terenu i świateł nocą i w dzień,
+- lista pakietów zainstalowanych w Community (własnych i testowych) na pulpicie, z usuwaniem,
+- przewodnik przy pierwszym uruchomieniu, cofanie zmian obszaru (Ctrl+Z).
 
 **Jak w FS Addon Toolkit**: aktualizacje przez redzikowski.com (instalator i wersja przenośna), zgłaszanie błędów i sugestii, raporty awarii, motywy ciemny/jasny/AMOLED z akcentami, polski i angielski.
 

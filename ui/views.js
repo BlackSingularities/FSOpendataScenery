@@ -50,6 +50,7 @@ export async function renderDashboard(view) {
         <div class="pb"><div class="pt"><span class="grow">${esc(p.name)}</span><button class="btn sm icon ghost" data-more="${p.id}">${icon('more')}</button></div>
         <div class="pd">${p.areaKm2 ? `${num(p.areaKm2, p.areaKm2 < 10 ? 2 : 1)} km² · ` : ''}${esc(p.package)}</div>${stagesHtml(p.status)}<div class="pd">${esc(t('updated'))}: ${esc(p.updated)}</div></div></div>`).join('')}
         <div class="proj new" id="d-new2">${icon('plus')}<div>${esc(t('newProject'))}</div></div></div></div>
+    <div id="d-installed"></div>
     <div><div class="section-title">${icon('info')}${esc(t('howItWorks'))}</div>
       <div class="how">${[1, 2, 3, 4, 5].map((i) => `<div class="st"><b>${i}</b><div class="t">${esc(t(`how${i}`))}</div><div class="d">${esc(t(`how${i}d`))}</div></div>`).join('')}</div></div>
     <div><div class="section-title">${icon('database')}${esc(t('dataCredits'))}</div>
@@ -70,6 +71,7 @@ export async function renderDashboard(view) {
       toast(t('projectImported'));
     } catch (e) { fail(e); }
   };
+  renderInstalled();
   $$('[data-p]', view).forEach((c) => (c.onclick = (e) => {
     if (e.target.closest('[data-more]')) return;
     window.dispatchEvent(new CustomEvent('open-project', { detail: c.dataset.p, bubbles: false }));
@@ -99,6 +101,25 @@ export async function renderDashboard(view) {
         } catch (e) { fail(e); }
       } },
     ]);
+  }));
+}
+
+async function renderInstalled() {
+  const el = $('#d-installed');
+  if (!el) return;
+  const list = await invoke('installed_packages').catch(() => []);
+  if (!$('#d-installed')) return;
+  if (!list.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="section-title">${icon('packages')}${esc(t('installedPkgs'))}<span class="grow"></span><span class="faint">${num(list.length)}</span></div>
+    <div class="card list">${list.map((p, i) => `<div class="row"><span class="tag ${p.test ? 'warn' : 'acc'}">${esc(p.test ? t('testTag') : 'Community')}</span>
+      <div class="grow"><div class="t">${esc(p.title)}</div><div class="d">${esc(p.name)}${p.projectName ? ` · ${esc(t('fromProject', p.projectName))}` : ` · ${esc(t('noProjectLink'))}`}${p.linked ? ` · ${esc(t('linked'))}` : p.bytes ? ` · ${bytes(p.bytes)}` : ''}</div></div>
+      <button class="btn sm ghost icon" data-open="${i}" title="${esc(t('open'))}">${icon('folder')}</button>
+      <button class="btn sm ghost icon danger" data-rm="${i}" title="${esc(t('uninstall'))}">${icon('trash')}</button></div>`).join('')}</div>`;
+  $$('[data-open]', el).forEach((b) => (b.onclick = () => opener.openPath(list[+b.dataset.open].path)));
+  $$('[data-rm]', el).forEach((b) => (b.onclick = async () => {
+    const p = list[+b.dataset.rm];
+    if (!(await confirmBox(t('uninstallQ'), `<div>${esc(t('uninstallD', p.path))}</div>`, t('uninstall'), true))) return;
+    try { await invoke('remove_installed_package', { path: p.path }); toast(t('uninstalled')); renderInstalled(); } catch (e) { fail(e); }
   }));
 }
 
@@ -176,7 +197,7 @@ async function renderCache() {
   if (!el) return;
   const list = await invoke('cache_info').catch(() => []);
   const total = list.reduce((a, [, b]) => a + b, 0);
-  const label = (n) => (n.startsWith('wcs-gugik') ? 'NMT GUGiK' : n.startsWith('wcs-') ? 'WCS' : n === 'terrarium' ? 'AWS Terrain Tiles' : n === 'copernicus30' ? 'Copernicus GLO-30' : n === 'copernicus90' ? 'Copernicus GLO-90' : n);
+  const label = (n) => (n.startsWith('wcs-gugik') ? t('srcname_gugik') : n.startsWith('wcs-') ? 'WCS' : n === 'terrarium' ? 'AWS Terrain Tiles' : n === 'copernicus30' ? 'Copernicus GLO-30' : n === 'copernicus90' ? 'Copernicus GLO-90' : n);
   el.innerHTML = `<div class="set-row"><div class="grow"><div class="t">${esc(t('demCache'))} · ${bytes(total)}</div><div class="d">${list.length ? list.map(([n, b]) => `${esc(label(n))}: ${bytes(b)}`).join(' · ') : esc(t('cacheEmpty'))}</div></div>
     <div class="btn-row">${list.map(([n]) => `<button class="btn sm ghost" data-clr="${esc(n)}" title="${esc(t('clear'))}">${icon('trash')}${esc(label(n))}</button>`).join('')}<button class="btn sm danger" id="st-clr" ${list.length ? '' : 'disabled'}>${icon('trash')}${esc(t('clearAll'))}</button></div></div>`;
   $$('[data-clr]', el).forEach((b) => (b.onclick = async () => { try { await invoke('clear_cache', { name: b.dataset.clr }); renderCache(); } catch (e) { fail(e); } }));

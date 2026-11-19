@@ -329,10 +329,20 @@ pub fn generate(els: &[Element], area: &Area, cfg: &LightsCfg, manual: &[ManualL
 
     // ── 2. Drogi i ścieżki ──
     let mut placed = PointGrid::new(center, 20.0);
-    for e in els.iter().filter(|e| e.t == 'w') {
-        let Some(cat_id) = road_category(e) else { continue };
+    // Najpierw jezdnie (od najważniejszych), potem ścieżki – chodnik przy oświetlonej ulicy
+    // korzysta z jej lamp i nie dostaje drugiego rzędu słupów.
+    let rank = |c: &str| ["motorway", "primary", "secondary", "residential", "service", "paths"].iter().position(|x| *x == c).unwrap_or(9);
+    let mut ways: Vec<(&Element, &'static str)> = els.iter().filter(|e| e.t == 'w').filter_map(|e| road_category(e).map(|c| (e, c))).collect();
+    ways.sort_by_key(|(_, c)| rank(c));
+    // Jezdnie, przy których stanęły już latarnie – ścieżka w ich pasie (chodnik bez tagu
+    // sidewalk, ścieżka rowerowa wzdłuż ulicy) nie dostaje osobnego rzędu słupów.
+    let mut lit_streets: SegmentIndex<()> = SegmentIndex::new(center, 40.0);
+    for (e, cat_id) in ways {
         let Some(cat) = cats.get(cat_id).filter(|c| c.enabled) else { continue };
         if e.tag("tunnel").map(|v| v != "no").unwrap_or(false) || e.is("covered", "yes") || e.is("area", "yes") {
+            continue;
+        }
+        if cat_id == "paths" && matches!(e.tag("footway").or(e.tag("cycleway")), Some("sidewalk") | Some("crossing") | Some("traffic_island")) {
             continue;
         }
         let line = &e.line;
@@ -357,6 +367,7 @@ pub fn generate(els: &[Element], area: &Area, cfg: &LightsCfg, manual: &[ManualL
         let wide = cat.both_sides && (half * 2.0 >= 9.0 || cat_id == "motorway" || cat_id == "primary");
         let dist = half + cat.offset.max(0.3) + if cat.style == "post_top" { 0.0 } else { 0.2 };
         let spec = spec_of(cat);
+        let mut any = false;
         for k in 0..count {
             let s = (k as f64 + 0.5) * step;
             let Some((q, brg)) = geo::point_along(line, s) else { continue };
@@ -368,7 +379,12 @@ pub fn generate(els: &[Element], area: &Area, cfg: &LightsCfg, manual: &[ManualL
             if mapped.nearest_within(pos, cfg.avoid_mapped.max(spacing * 0.4)).is_some() {
                 continue;
             }
-            if placed.nearest_within(pos, spacing * 0.45).is_some() {
+            // Ścieżka tuż przy ulicy jest już oświetlona latarniami jezdni.
+            let gap = if cat_id == "paths" { (spacing * 0.45).max(14.0) } else { spacing * 0.45 };
+            if placed.nearest_within(pos, gap).is_some() {
+                continue;
+            }
+            if cat_id == "paths" && lit_streets.nearest(pos, 14.0).is_some() {
                 continue;
             }
             // Słup nie może stać na innej jezdni (skrzyżowania, drogi równoległe).
@@ -380,6 +396,10 @@ pub fn generate(els: &[Element], area: &Area, cfg: &LightsCfg, manual: &[ManualL
             placed.insert(pos);
             let heading = (brg + side + 180.0 + heading_fix).rem_euclid(360.0);
             out.push(Light { lat: pos.lat, lon: pos.lon, heading, cat: cat_id.into(), src: 'g', osm: e.id, alt: 0.0, spec: spec.clone() });
+            any = true;
+        }
+        if any && cat_id != "paths" {
+            lit_streets.insert_line(line, ());
         }
     }
 
@@ -458,6 +478,46 @@ pub fn generate(els: &[Element], area: &Area, cfg: &LightsCfg, manual: &[ManualL
     }
     res.models = count_models(&res.lights);
     res
+}
+
+/// Wzór do kalibracji w symulatorze: po trzy lampy każdej włączonej kategorii w rzędach
+/// co 30 m (wysięgniki na północ), na końcu światło przeszkodowe i latarnia morska.
+pub fn test_pattern(center: LatLon, cfg: &LightsCfg, obs: &ObstaclesCfg) -> Vec<Light> {
+    let mut cfg = cfg.clone();
+    merge_defaults(&mut cfg);
+    let order = ["mapped", "motorway", "primary", "secondary", "residential", "service", "paths", "parking", "pitches", "platforms", "fuel", "piers"];
+    let mut out = vec![];
+    let mut row = 0usize;
+    for id in order {
+        let Some(cat) = cfg.categories.get(id).filter(|c| c.enabled) else { continue };
+        let start = geo::destination(center, 0.0, row as f64 * 30.0 - 120.0);
+        for k in 0..3 {
+            let p = geo::destination(start, 90.0, k as f64 * 20.0 - 20.0);
+            let mut spec = spec_of(cat);
+            if spec.style == "flood" {
+                spec.tilt = 30.0;
+            }
+            let alt = if spec.style == "wall" || spec.style == "none" { spec.height } else { 0.0 };
+            let heading = if cfg.flip_arm { 180.0 } else { 0.0 };
+            out.push(Light { lat: p.lat, lon: p.lon, heading, cat: id.into(), src: 'm', osm: 0, alt, spec });
+        }
+        row += 1;
+    }
+    let east = geo::destination(center, 90.0, 80.0);
+    out.push(obstruction(east, 60.0, "obstacle", 0, obs, obs.flashing, 1.0));
+    out.push(obstruction(geo::destination(east, 0.0, 30.0), 30.0, "obstacle", 0, obs, false, 0.4));
+    let beacon = geo::destination(east, 0.0, 70.0);
+    out.push(Light {
+        lat: beacon.lat,
+        lon: beacon.lon,
+        heading: 0.0,
+        cat: "lighthouse".into(),
+        src: 'm',
+        osm: 0,
+        alt: 25.0,
+        spec: Spec { style: "beacon".into(), height: 0.0, arm: 0.0, kelvin: 0.0, color: Some([1.0, 0.97, 0.88]), intensity: 600.0, cone: 360.0, heads: 1, tilt: 0.0, flash: light_character("Fl", Some(5.0)), levels: vec![] },
+    });
+    out
 }
 
 pub fn count_models(lights: &[Light]) -> usize {
@@ -803,6 +863,19 @@ mod tests {
             ..Default::default()
         };
         assert!(!generate(&[road, town], &area(), &LightsCfg::default(), &[], &[]).lights.is_empty());
+    }
+
+    #[test]
+    fn sidewalk_reuses_street_lamps() {
+        let road = Element { t: 'w', id: 10, tags: tags(&[("highway", "residential"), ("lit", "yes")]), line: vec![LatLon::new(50.01, 19.002), LatLon::new(50.01, 19.008)], ..Default::default() };
+        // Chodnik oznaczony jako sidewalk – bez własnych lamp.
+        let walk = Element { t: 'w', id: 11, tags: tags(&[("highway", "footway"), ("footway", "sidewalk"), ("lit", "yes")]), line: vec![LatLon::new(50.01005, 19.002), LatLon::new(50.01005, 19.008)], ..Default::default() };
+        // Ścieżka równoległa bez tagu sidewalk, 6 m od jezdni – też korzysta z latarni ulicy.
+        let path = Element { t: 'w', id: 12, tags: tags(&[("highway", "footway"), ("lit", "yes")]), line: vec![LatLon::new(50.01008, 19.002), LatLon::new(50.01008, 19.008)], ..Default::default() };
+        let r = generate(&[walk, path, road], &area(), &LightsCfg::default(), &[], &[]);
+        let paths = r.lights.iter().filter(|l| l.cat == "paths").count();
+        assert!(paths <= 2, "za dużo lamp przy chodniku: {paths}");
+        assert!(r.lights.iter().filter(|l| l.cat == "residential").count() > 8);
     }
 
     #[test]

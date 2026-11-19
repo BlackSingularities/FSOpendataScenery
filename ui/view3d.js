@@ -167,7 +167,7 @@ export async function render3d(view) {
   };
   ctx = { renderer, scene, ro, raf: 0 };
   loop();
-  $('#v3-info').textContent = `${num(W / 1000, 2)} × ${num(H / 1000, 2)} km · ${g ? `${num(g.min, 0)}–${num(g.max, 0)} m n.p.m. · ` : ''}${t('lightsTotal')}: ${num(n)}`;
+  $('#v3-info').textContent = `${num(W / 1000, 2)} × ${num(H / 1000, 2)} km · ${g ? `${num(g.min, 0)}–${num(g.max, 0)} ${t('unitAsl')} · ` : ''}${t('lightsTotal')}: ${num(n)}`;
   $$('[data-n]', view).forEach((b) => (b.onclick = () => { localStorage.setItem('fsos-3d-night', b.dataset.n); $$('[data-n]', view).forEach((x) => x.classList.toggle('on', x === b)); setNight(b.dataset.n === '1'); }));
   $$('[data-x]', view).forEach((b) => (b.onclick = () => { localStorage.setItem('fsos-3d-exag', b.dataset.x); render3d(view); }));
   $('#v3-reset').onclick = reset;
