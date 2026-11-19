@@ -2,6 +2,8 @@
 // z prawdziwymi danymi z przebiegu e2e (/__data.json), pozostałe projekty są przykładowe.
 (() => {
   const qs = new URLSearchParams(location.search);
+  // ?lang=pl – polski interfejs i polskie nazwy projektów (zrzuty na redzikowski.com).
+  const PL = qs.get('lang') === 'pl';
   const xhr = new XMLHttpRequest();
   xhr.open('GET', '/__data.json', false);
   xhr.send();
@@ -32,6 +34,10 @@
   ];
   const projects = { krk };
   for (const s of samples) projects[s.id] = { ...JSON.parse(JSON.stringify(krk)), id: s.id, name: s.name, note: s.note, area: { outer: s.ring, holes: [] }, status: s.status, updated: s.status.lights?.split('|')[0] || s.status.osm.split('|')[0], package: { ...krk.package, name: s.pkg, title: s.name } };
+  if (PL) {
+    const names = { krk: ['Kraków – Stare Miasto i Wawel', 'Prawdziwe latarnie z OSM i teren z LiDAR 1 m'], epkk: ['EPKK Kraków-Balice – teren LiDAR', 'Wyrównany pas 07/25'], zak: ['Zakopane i Gubałówka', 'Teren górski, siatka 2 m'], gdn: ['Gdańsk – nabrzeże Motławy', ''], hel: ['Półwysep Helski – latarnie morskie', 'Tylko światła przeszkodowe i latarnie'] };
+    for (const [id, [n, note]] of Object.entries(names)) { projects[id].name = n; projects[id].note = note; projects[id].package.title = n; }
+  }
   const card = (p) => ({ id: p.id, name: p.name, note: p.note, updated: p.updated, areaKm2: area(p.area.outer), center: center(p.area.outer), outer: p.area.outer, status: p.status, package: p.package.name });
 
   // Profil wysokości z prawdziwej siatki podglądu 3D.
@@ -50,7 +56,7 @@
     return out;
   };
 
-  let settings = { language: 'en', theme: qs.get('theme') || 'dark', accent: qs.get('accent') || 'amber', autoUpdateCheck: false, sdkPath: '', communityPath: '', buildStore: 'auto', installMode: 'link', overpassUrl: '', mapStyle: qs.get('map') || 'dark', creator: 'FS Opendata Scenery', lastProject: 'krk', onboarded: !qs.has('welcome'), keepSources: true };
+  let settings = { language: PL ? 'pl' : 'en', theme: qs.get('theme') || 'dark', accent: qs.get('accent') || 'amber', autoUpdateCheck: false, sdkPath: '', communityPath: '', buildStore: 'auto', installMode: 'link', overpassUrl: '', mapStyle: qs.get('map') || 'dark', creator: 'FS Opendata Scenery', lastProject: 'krk', onboarded: !qs.has('welcome'), keepSources: true };
   const community = 'F:\\MSFS 2024\\Community';
   const R = {
     app_info: { version: '1.0.0', installKind: 'nsis', dataDir: 'C:\\Users\\pilot\\AppData\\Roaming\\com.blacksingularities.fsopendatascenery', cacheDir: 'C:\\Users\\pilot\\AppData\\Local\\FS Opendata Scenery\\cache', airports: 83112, crs: [[4326, 'WGS 84'], [2180, 'PL-1992'], [32634, 'UTM 34N'], [2056, 'CH1903+ / LV95'], [28992, 'RD New'], [27700, 'British National Grid']] },

@@ -16,7 +16,8 @@ const settle = async (page, ms = 900) => {
   await page.waitForTimeout(400);
 };
 const nav = async (p, v) => { await p.click(`.nav-btn[data-v="${v}"]`); await settle(p, 1200); };
-const open = async (p, q = '') => { await p.goto(BASE + q); await settle(p, 1500); };
+const LANG = process.env.LANG_UI === 'pl' ? 'lang=pl' : '';
+const open = async (p, q = '') => { await p.goto(BASE + (q ? q + (LANG ? '&' + LANG : '') : LANG ? '?' + LANG : '')); await settle(p, 1500); };
 // Przybliżenie mapy Leaflet kółkiem w danym punkcie.
 const zoom = async (p, x, y, steps) => {
   await p.mouse.move(x, y);
@@ -39,7 +40,7 @@ const scenes = {
   '04-3d-day': async (p) => { await p.addInitScript(() => localStorage.setItem('fsos-3d-night', '0')); await open(p); await nav(p, 'view3d'); await x2(p); },
   '05-dashboard': async (p) => { await open(p); },
   '06-area': async (p) => { await open(p); await nav(p, 'area'); },
-  '07-lights-satellite': async (p) => { await open(p); await nav(p, 'lights'); await p.locator('button', { hasText: 'Satellite' }).first().click(); await settle(p, 1500); await zoom(p, RYNEK[0], RYNEK[1], 2); },
+  '07-lights-satellite': async (p) => { await open(p); await nav(p, 'lights'); await p.locator('button', { hasText: process.env.LANG_UI === 'pl' ? 'Satelita' : 'Satellite' }).first().click(); await settle(p, 1500); await zoom(p, RYNEK[0], RYNEK[1], 2); },
   '08-build': async (p) => { await open(p); await nav(p, 'build'); },
   '09-terrain-light': async (p) => { await open(p, '?theme=light&map=light'); await nav(p, 'terrain'); },
   '10-objects': async (p) => { await open(p); await nav(p, 'objects'); },
