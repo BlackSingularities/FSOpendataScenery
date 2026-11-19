@@ -48,16 +48,19 @@ export async function render3d(view) {
     return;
   }
   const night = localStorage.getItem('fsos-3d-night') !== '0';
-  const exag = +(localStorage.getItem('fsos-3d-exag') || 1.5);
+  const exag = +(localStorage.getItem('fsos-3d-exag') || 1);
+  // Jakość siatki: full = 1:1 z rozdzielczością terenu (do 2048 punktów na bok).
+  const quality = localStorage.getItem('fsos-3d-q') || 'full';
   view.innerHTML = `<div class="v3d"><div class="over">
       <div class="seg"><button data-n="1" class="${night ? 'on' : ''}">${icon('moon')}${esc(t('night'))}</button><button data-n="0" class="${night ? '' : 'on'}">${icon('sun')}${esc(t('day'))}</button></div>
       <div class="seg">${[1, 1.5, 2, 3].map((x) => `<button data-x="${x}" class="${x === exag ? 'on' : ''}">×${num(x, x % 1 ? 1 : 0)}</button>`).join('')}</div>
+      <div class="seg">${['fast', 'high', 'full'].map((q) => `<button data-q="${q}" class="${q === quality ? 'on' : ''}" title="${esc(t(`q3d_${q}D`))}">${esc(t(`q3d_${q}`))}</button>`).join('')}</div>
       <button class="btn sm" id="v3-reset">${icon('target')}${esc(t('resetView'))}</button></div>
     <div class="info" id="v3-info">${esc(t('loading'))}</div></div>`;
   const host = $('.v3d', view);
   let data;
   try {
-    data = await invoke('preview_3d', { id: S.project.id });
+    data = await invoke('preview_3d', { id: S.project.id, quality });
   } catch (e) {
     $('#v3-info').textContent = String(e);
     return;
@@ -111,28 +114,52 @@ export async function render3d(view) {
     scene.add(plane);
   }
 
-  // Światła: kropki z poświatą (addytywnie) + słaba „plama” na ziemi.
+  // Światła: słup z wysięgnikiem, mała oprawa na końcu wysięgnika i płaska plama światła
+  // leżąca na terenie pod oprawą – światło pada w dół, jak w symulatorze.
   const n = data.lights.length;
-  const pts = new Float32Array(n * 3);
+  const heads = new Float32Array(n * 3);
   const cols = new Float32Array(n * 3);
-  const pool = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    const [x, y, top, ground, c] = data.lights[i];
-    // Teren jest przewyższony, ale wysokość słupa – nie (lampa zostaje 8 m nad ziemią).
-    pts.set([x, (ground - base) * exag + (top - ground), y], i * 3);
-    pool.set([x, (ground - base) * exag + 0.5, y], i * 3);
-    cols.set(c, i * 3);
-  }
+  const poleSeg = [];
+  const poolM = new THREE.Matrix4();
   const tex = glowTexture();
-  const pGeo = new THREE.BufferGeometry();
-  pGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-  pGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  const lamps = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: Math.max(6, Math.min(W, H) / 400), map: tex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
-  const gGeo = new THREE.BufferGeometry();
-  gGeo.setAttribute('position', new THREE.BufferAttribute(pool, 3));
-  gGeo.setAttribute('color', new THREE.BufferAttribute(cols.map((v) => v * 0.45), 3));
-  const pools = new THREE.Points(gGeo, new THREE.PointsMaterial({ size: Math.max(22, Math.min(W, H) / 120), map: tex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-  scene.add(lamps, pools);
+  const poolGeo = new THREE.PlaneGeometry(1, 1);
+  poolGeo.rotateX(-Math.PI / 2);
+  const poolMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, vertexColors: false, color: 0xffffff, opacity: 0.55 });
+  const pools = new THREE.InstancedMesh(poolGeo, poolMat, Math.max(1, n));
+  const tmpC = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const [x, y, top, ground, c, , , heading = 0, arm = 0, style = ''] = data.lights[i];
+    const g0 = (ground - base) * exag;
+    const hgt = top - ground;
+    // Wysięgnik w stronę jezdni (heading jak w modelu: 0 = północ, czyli −z w podglądzie).
+    const a = (heading * Math.PI) / 180;
+    const reach = ['cobra', 'double', 'wall'].includes(style) ? Math.max(0, arm) : 0;
+    const hx = x + Math.sin(a) * reach;
+    const hz = y - Math.cos(a) * reach;
+    const wallOrNone = style === 'wall' || style === 'none' || style === 'obstruction' || style === 'beacon';
+    if (!wallOrNone) {
+      poleSeg.push(x, g0, y, x, g0 + hgt, y);
+      if (reach > 0) poleSeg.push(x, g0 + hgt, y, hx, g0 + hgt, hz);
+    }
+    heads.set([hx, g0 + hgt, hz], i * 3);
+    cols.set(c, i * 3);
+    // Plama na ziemi: średnica rośnie z wysokością oprawy (stożek ~140°), światło przeszkodowe bez plamy.
+    const d = style === 'obstruction' || style === 'beacon' ? 0.001 : Math.min(60, Math.max(6, hgt * 2.4));
+    poolM.makeScale(d, 1, d).setPosition(hx, g0 + 0.3, hz);
+    pools.setMatrixAt(i, poolM);
+    pools.setColorAt(i, tmpC.setRGB(c[0], c[1], c[2]));
+  }
+  pools.instanceMatrix.needsUpdate = true;
+  if (pools.instanceColor) pools.instanceColor.needsUpdate = true;
+  const hGeo = new THREE.BufferGeometry();
+  hGeo.setAttribute('position', new THREE.BufferAttribute(heads, 3));
+  hGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  // Oprawa: mały, jasny punkt (bez wielkiej kuli), rozmiar w metrach.
+  const lamps = new THREE.Points(hGeo, new THREE.PointsMaterial({ size: 3, map: tex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true }));
+  const sGeo = new THREE.BufferGeometry();
+  sGeo.setAttribute('position', new THREE.Float32BufferAttribute(poleSeg, 3));
+  const poles = new THREE.LineSegments(sGeo, new THREE.LineBasicMaterial({ color: 0x8a939c, transparent: true, opacity: 0.85 }));
+  scene.add(poles, pools, lamps);
 
   const setNight = (on) => {
     scene.background = new THREE.Color(on ? 0x05070c : 0x9cc4e8);
@@ -140,7 +167,8 @@ export async function render3d(view) {
     hemi.intensity = on ? 0.12 : 0.9;
     sun.intensity = on ? 0.05 : 1.6;
     pools.visible = on;
-    lamps.material.opacity = on ? 1 : 0.55;
+    lamps.material.opacity = on ? 1 : 0.35;
+    poles.material.color.setHex(on ? 0x59616a : 0x6d7680);
     renderer.toneMappingExposure = on ? 1.2 : 1;
   };
   setNight(night);
@@ -167,9 +195,10 @@ export async function render3d(view) {
   };
   ctx = { renderer, scene, ro, raf: 0 };
   loop();
-  $('#v3-info').textContent = `${num(W / 1000, 2)} × ${num(H / 1000, 2)} km · ${g ? `${num(g.min, 0)}–${num(g.max, 0)} ${t('unitAsl')} · ` : ''}${t('lightsTotal')}: ${num(n)}`;
+  $('#v3-info').textContent = `${num(W / 1000, 2)} × ${num(H / 1000, 2)} km · ${g ? `${num(g.min, 0)}–${num(g.max, 0)} ${t('unitAsl')} · ${t('grid3d', num(g.w), num(g.h), num(g.stepM, g.stepM < 10 ? 1 : 0))} · ` : ''}${t('lightsTotal')}: ${num(n)}`;
   $$('[data-n]', view).forEach((b) => (b.onclick = () => { localStorage.setItem('fsos-3d-night', b.dataset.n); $$('[data-n]', view).forEach((x) => x.classList.toggle('on', x === b)); setNight(b.dataset.n === '1'); }));
   $$('[data-x]', view).forEach((b) => (b.onclick = () => { localStorage.setItem('fsos-3d-exag', b.dataset.x); render3d(view); }));
+  $$('[data-q]', view).forEach((b) => (b.onclick = () => { localStorage.setItem('fsos-3d-q', b.dataset.q); render3d(view); }));
   $('#v3-reset').onclick = reset;
 }
 

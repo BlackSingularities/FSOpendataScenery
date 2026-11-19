@@ -61,7 +61,7 @@ export async function renderDashboard(view) {
   $('#d-new2').onclick = newP;
   $('#d-cont')?.addEventListener('click', () => window.dispatchEvent(new CustomEvent('go', { detail: S.project.area?.outer?.length ? 'terrain' : 'area' })));
   $('#d-env').onclick = async () => { S.env = await invoke('env_status'); renderDashboard(view); };
-  $('#d-sdk')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_Overview.htm'); });
+  $('#d-sdk')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/'); });
   $('#d-import').onclick = async () => {
     const path = await dialogApi.open({ filters: [{ name: 'FS Opendata Scenery', extensions: ['json'] }] });
     if (!path) return;

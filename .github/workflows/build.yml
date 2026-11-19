@@ -17,7 +17,7 @@ env:
 
 jobs:
   windows:
-    name: Testy i Windows (.exe / .msi)
+    name: Testy i Windows (instalator .exe)
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -54,8 +54,6 @@ jobs:
         run: |
           mkdir -p dist
           cp src-tauri/target/release/bundle/nsis/*-setup.exe "dist/FSOpendataScenery_${APP_VERSION}_x64-setup.exe"
-          cp src-tauri/target/release/bundle/msi/*.msi "dist/FSOpendataScenery_${APP_VERSION}_x64.msi"
-          cp src-tauri/target/release/fs-opendata-scenery.exe "dist/FSOpendataScenery_${APP_VERSION}_portable.exe"
           ls -la dist
       - uses: actions/upload-artifact@v4
         with:
@@ -84,9 +82,7 @@ jobs:
             echo
             echo "| Plik | Do czego |"
             echo "|---|---|"
-            echo "| \`FSOpendataScenery_${APP_VERSION}_x64-setup.exe\` | Windows – instalator (zalecany) |"
-            echo "| \`FSOpendataScenery_${APP_VERSION}_x64.msi\` | Windows – instalator MSI |"
-            echo "| \`FSOpendataScenery_${APP_VERSION}_portable.exe\` | Windows – wersja bez instalacji (wymaga WebView2) |"
+            echo "| \`FSOpendataScenery_${APP_VERSION}_x64-setup.exe\` | Windows – instalator |"
           } > notes.md
           cat notes.md
       - uses: softprops/action-gh-release@v2

@@ -23,9 +23,6 @@ in your Community folder.
    folder and the MSFS 2024 SDK are detected automatically. You can change
    them in Settings.
 
-A portable version (no installation) and an MSI installer are available on
-GitHub: https://github.com/BlackSingularities/FSOpendataScenery/releases
-
 ==============================================================================
  2. MSFS 2024 SDK (needed to compile packages)
 ==============================================================================

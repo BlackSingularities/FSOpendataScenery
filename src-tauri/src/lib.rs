@@ -119,7 +119,9 @@ fn normalize(mut p: Project) -> Project {
     if p.package.version.is_empty() {
         p.package.version = "1.0.0".into();
     }
-    p.terrain.tile = p.terrain.tile.clamp(17, 256);
+    // Rozmiar prostokąta z listy w interfejsie (starsze wersje zapisywały 129, 257 itd.).
+    let t = p.terrain.tile;
+    p.terrain.tile = [32u32, 64, 128, 192, 256].into_iter().min_by_key(|v| v.abs_diff(t)).unwrap_or(128);
     p
 }
 
@@ -820,10 +822,10 @@ fn lights_value(list: &[lights::Light]) -> Value {
 }
 
 /// Teren i światła dla podglądu 3D (współrzędne w metrach od narożnika NW obszaru).
-fn preview3d_value(area: &Area, t: Option<&terrain::Terrain>, lights: &[lights::Light]) -> Value {
+fn preview3d_value(area: &Area, t: Option<&terrain::Terrain>, lights: &[lights::Light], max_n: usize) -> Value {
     let b = area.bbox();
     let loc = geo::Local::new(LatLon::new(b.north, b.west));
-    let grid = t.map(|t| t.grid3d(area, 360));
+    let grid = t.map(|t| t.grid3d(area, max_n));
     let lamp: Vec<Value> = lights
         .iter()
         .take(60_000)
@@ -832,7 +834,8 @@ fn preview3d_value(area: &Area, t: Option<&terrain::Terrain>, lights: &[lights::
             let ground = t.and_then(|t| t.sample(LatLon::new(l.lat, l.lon))).unwrap_or(0.0) as f64;
             let top = if l.alt > 0.0 { l.alt } else { l.spec.height.max(0.5) };
             let c = l.spec.color.unwrap_or_else(|| geo::kelvin_rgb(l.spec.kelvin));
-            json!([x.round(), (-y).round(), (ground + top).round(), ground.round(), c, l.spec.intensity, l.spec.flash.is_some()])
+            // [x, y, wierzchołek, teren, kolor, natężenie, błyska, kierunek wysięgnika, wysięgnik, styl]
+            json!([x.round(), (-y).round(), (ground + top).round(), ground.round(), c, l.spec.intensity, l.spec.flash.is_some(), l.heading.round(), l.spec.arm, l.spec.style])
         })
         .collect();
     json!({"grid": grid, "lights": lamp, "widthM": b.width_m(), "heightM": b.height_m()})
@@ -857,7 +860,13 @@ fn export_lights_geojson(state: St, id: String, path: String) -> Result<usize, S
 // ── Podgląd 3D ──
 
 #[tauri::command]
-async fn preview_3d(state: St<'_>, id: String) -> Result<Value, String> {
+async fn preview_3d(state: St<'_>, id: String, quality: Option<String>) -> Result<Value, String> {
+    // „full” = natywna rozdzielczość terenu (1:1), z limitem, który mieści się w WebGL.
+    let max_n = match quality.as_deref() {
+        Some("fast") => 360,
+        Some("high") => 1024,
+        _ => 2048,
+    };
     let p = state.store.project(&id)?;
     let tpath = terrain_path(&state, &id);
     let lpath = lights_path(&state, &id);
@@ -865,7 +874,7 @@ async fn preview_3d(state: St<'_>, id: String) -> Result<Value, String> {
         let t = terrain::Terrain::load(&tpath).ok();
         let lights: Vec<lights::Light> = store::read_json(&lpath).unwrap_or_default();
         // Bez policzonego terenu – płaska podstawa na wysokości 0.
-        Ok(preview3d_value(&p.area, t.as_ref(), &lights))
+        Ok(preview3d_value(&p.area, t.as_ref(), &lights, max_n))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1336,7 +1345,7 @@ async fn install_update(app: AppHandle, url: String) -> Result<(), String> {
         return Err("Nieprawidłowy adres aktualizacji".into());
     }
     let run = update::install(&url).await?;
-    std::process::Command::new(&run).spawn().map_err(|e| format!("Uruchomienie nowej wersji: {e}"))?;
+    update::launch(&run).map_err(|e| format!("Uruchomienie nowej wersji: {e}"))?;
     app.exit(0);
     Ok(())
 }
@@ -1454,7 +1463,7 @@ mod e2e {
         let ui = json!({
             "project": p,
             "lights": lights_value(&gen.lights),
-            "preview3d": preview3d_value(&p.area, Some(&ter), &gen.lights),
+            "preview3d": preview3d_value(&p.area, Some(&ter), &gen.lights, 360),
             "terrainSummary": ter.summary,
             "terrainPreview": {"url": format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png)), "bbox": p.area.bbox()},
         });

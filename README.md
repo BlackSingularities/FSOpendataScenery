@@ -52,7 +52,7 @@ Generator scenerii z otwartych danych dla **Microsoft Flight Simulator 2024**. W
 - lista pakietów zainstalowanych w Community (własnych i testowych) na pulpicie, z usuwaniem,
 - przewodnik przy pierwszym uruchomieniu, cofanie zmian obszaru (Ctrl+Z).
 
-**Jak w FS Addon Toolkit**: aktualizacje przez redzikowski.com (instalator i wersja przenośna), zgłaszanie błędów i sugestii, raporty awarii, motywy ciemny/jasny/AMOLED z akcentami, polski i angielski.
+**Jak w FS Addon Toolkit**: aktualizacje przez redzikowski.com (instalator .exe), zgłaszanie błędów i sugestii, raporty awarii, motywy ciemny/jasny/AMOLED z akcentami, polski i angielski.
 
 ## Wymagania
 

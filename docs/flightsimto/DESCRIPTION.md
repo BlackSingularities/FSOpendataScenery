@@ -91,7 +91,7 @@ FS Opendata Scenery is a free, open-source Windows app that **creates scenery ad
 - English and Polish interface; dark, light and AMOLED themes with accent colours
 - A short guide on first start and undo for area edits (Ctrl+Z)
 - A cache of downloaded data, with its size shown and a clear button
-- Built-in updates (installer and portable version) and a *Report a problem or suggest a feature* form
+- Built-in updates and a *Report a problem or suggest a feature* form
 
 ### Requirements
 
@@ -102,7 +102,7 @@ FS Opendata Scenery is a free, open-source Windows app that **creates scenery ad
 
 ### Installation
 
-1. Download the ZIP and run `FSOpendataScenery_1.0.0_x64-setup.exe`. If Windows SmartScreen warns about the file, choose *More info → Run anyway*. You can also use the portable `.exe` from GitHub without installing.
+1. Download the ZIP and run `FSOpendataScenery_1.0.0_x64-setup.exe`. If Windows SmartScreen warns about the file, choose *More info → Run anyway*.
 2. Start **FS Opendata Scenery**. Your MSFS 2024 installation, Community folder and SDK are detected automatically. You can change them in **Settings**.
 3. Create a project, choose an area, compute terrain and place lights, then press **Build and install**.
 4. Start the simulator and fly to your area.

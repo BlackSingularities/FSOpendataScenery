@@ -104,6 +104,9 @@ pub struct TerrainCfg {
     pub hydro: bool,
     /// Wyrównanie terenu pod pasami startowymi z OSM.
     pub flatten_runways: bool,
+    /// Gdy wybrane źródła nie mają danych w jakimś miejscu, dobierz najdokładniejsze globalne
+    /// (AWS Terrain Tiles, potem Copernicus GLO-30) zamiast zostawiać dziurę.
+    pub fill_gaps: bool,
     /// Pomijanie płaskich kafli, które nie dodają szczegółów.
     pub skip_flat: bool,
     pub skip_threshold: f64,
@@ -127,6 +130,7 @@ impl Default for TerrainCfg {
             offset: 0.0,
             hydro: true,
             flatten_runways: true,
+            fill_gaps: true,
             skip_flat: false,
             skip_threshold: 0.25,
             wcs_url: String::new(),

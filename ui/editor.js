@@ -143,14 +143,15 @@ export function renderTerrain(view) {
             <div class="grow"><div class="t">${esc(t(`srcname_${s}`))} ${SOURCES[s].res ? `<span class="tag">${SOURCES[s].res}</span>` : ''}</div><div class="d">${esc(t(`srcdesc_${s}`))}${out ? ` · <span class="c-bad">${esc(t('outsidePoland'))}</span>` : ''}</div></div>
             <div class="ord"><button data-up="${s}" ${i === 0 ? 'disabled' : ''}>▲</button><button data-down="${s}">▼</button></div>
             <button class="switch ${on ? 'on' : ''}" data-src="${s}"></button></div>`;
-        }).join('')}</div>`)}
+        }).join('')}</div>
+        <label class="toggle-row"><div class="grow"><div class="t">${esc(t('fillGaps'))}</div><div class="d">${esc(t('fillGapsD'))}</div></div>${sw('terrain.fillGaps')}</label>`)}
       ${sec('fileUp', t('ownFiles'), `
         <p class="lead">${esc(t('ownFilesD'))}</p>
         <div id="tf-files" class="src-list"></div>
         <div class="btn-row"><button class="btn sm" id="tf-add">${icon('plus')}${esc(t('addFiles'))}</button></div>`, tc.files.length > 0 || tc.sources.includes('files'))}
       ${sec('grid', t('gridSettings'), `
         ${frow(t('resolution'), `<select class="inp" data-bind="terrain.resolution" data-num>${[1, 2, 3, 5, 7.5, 10, 15, 20, 30].map((r) => `<option value="${r}">${num(r, r % 1 ? 1 : 0)} m</option>`).join('')}</select>`, t('resolutionD'))}
-        ${frow(t('tileSize'), `<select class="inp" data-bind="terrain.tile" data-num>${[33, 65, 129, 193, 257].map((n) => `<option value="${n}">${n - 1} × ${n - 1}</option>`).join('')}</select>`, t('tileSizeD'))}
+        ${frow(t('tileSize'), `<select class="inp" data-bind="terrain.tile" data-num>${[32, 64, 128, 192, 256].map((n) => `<option value="${n}">${n} × ${n}</option>`).join('')}</select>`, t('tileSizeD'))}
         ${frow(t('falloff'), unit('terrain.falloff', 'm', 'min="0" max="2000"'), t('falloffD'))}
         ${frow(t('priority'), unit('terrain.priority', '', 'min="0" max="50"'), t('priorityD'))}
         <div id="tf-plan" class="kpis"></div><div id="tf-planw"></div>`)}
@@ -577,7 +578,7 @@ export async function renderBuild(view) {
       <div class="set-row"><div class="grow"><div class="sublabel">${esc(t('buildLog'))}</div><div class="console" id="bd-log"></div></div></div>
     </div></div>`;
   bindInputs(view);
-  $('#bd-sdkdoc')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_Overview.htm'); });
+  $('#bd-sdkdoc')?.addEventListener('click', (e) => { e.preventDefault(); opener.openUrl('https://docs.flightsimulator.com/msfs2024/'); });
   $('#bd-all').onclick = () => startJob('all', { install: sdkOk });
   $('#bd-build').onclick = () => startJob('build');
   $('#bd-test').onclick = () => startJob('testlights', { install: sdkOk });

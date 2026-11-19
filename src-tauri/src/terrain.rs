@@ -181,6 +181,16 @@ pub fn build_mosaic(cfg: &TerrainCfg, cache: &Path, area: &BBox, warnings: &mut 
             _ => {}
         }
     }
+    // Uzupełnianie braków: na końcu kolejki globalne źródła, których użytkownik nie wybrał.
+    // Wygrywają tylko tam, gdzie wcześniejsze nie mają danych (np. poza Polską przy NMT GUGiK).
+    if cfg.fill_gaps {
+        if !cfg.sources.iter().any(|s| s == "terrarium") {
+            sources.push(Box::new(dem::Terrarium::new(cache, cfg.resolution, lat)));
+        }
+        if !cfg.sources.iter().any(|s| s == "copernicus30") {
+            sources.push(Box::new(dem::Copernicus::new(cache, false)));
+        }
+    }
     if sources.is_empty() {
         return Err("Brak źródeł danych wysokościowych dla tego obszaru – włącz AWS Terrain Tiles albo dodaj własny plik".into());
     }
@@ -768,17 +778,18 @@ impl Terrain {
             })
             .collect();
         for v in z.iter_mut() {
-            if v.is_nan() {
-                *v = fill;
-            }
+            // Dziesiąte części metra wystarczą, a JSON dla milionów punktów jest kilka razy mniejszy.
+            *v = if v.is_nan() { fill } else { (*v * 10.0).round() / 10.0 };
         }
-        Grid3d { w, h, width_m: wm, height_m: hm, bbox: b, z, mask, min: self.summary.min, max: self.summary.max }
+        Grid3d { w, h, width_m: wm, height_m: hm, bbox: b, z, mask, min: self.summary.min, max: self.summary.max, step_m: wm.max(hm) / (w.max(h) - 1).max(1) as f64 }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Grid3d {
+    /// Odstęp punktów siatki w metrach (przy 1:1 równy krokowi terenu).
+    pub step_m: f64,
     pub w: usize,
     pub h: usize,
     pub width_m: f64,
